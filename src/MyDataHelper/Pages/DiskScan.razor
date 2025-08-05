@@ -1,0 +1,297 @@
+@page "/scan"
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IDiskScanService ScanService
+@inject IFolderDialogService FolderDialog
+@inject IJSRuntime JS
+
+<PageTitle>MyDataHelper - Disk Scan</PageTitle>
+
+<h1>Disk Scan</h1>
+
+<div class="scan-container">
+    @if (IsLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Scan Roots</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (ScanRoots.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Path</th>
+                                            <th>Display Name</th>
+                                            <th>Active</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var root in ScanRoots)
+                                        {
+                                            <tr>
+                                                <td>@root.path</td>
+                                                <td>@root.display_name</td>
+                                                <td>
+                                                    <input type="checkbox" @bind="root.is_active" @bind:after="() => UpdateScanRoot(root)" />
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => StartScan(root.id)">Scan</button>
+                                                    <button class="btn btn-sm btn-danger" @onclick="() => RemoveScanRoot(root.id)">Remove</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No scan roots configured. Add folders or drives to scan.</p>
+                        }
+                        
+                        <div class="mt-3">
+                            <button class="btn btn-success me-2" @onclick="AddScanRoot">Add Folder</button>
+                            <button class="btn btn-primary me-2" @onclick="StartFullScan" disabled="@(ScanService.IsScanning)">
+                                @if (ScanService.IsScanning)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Scanning...</span>
+                                }
+                                else
+                                {
+                                    <span>Start Full Scan</span>
+                                }
+                            </button>
+                            @if (ScanService.IsScanning)
+                            {
+                                <button class="btn btn-warning" @onclick="CancelScan">Cancel Scan</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Scan Progress</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (ScanService.IsScanning && ScanService.CurrentProgress != null)
+                        {
+                            var progress = ScanService.CurrentProgress;
+                            <div class="mb-3">
+                                <div class="progress">
+                                    <div class="progress-bar" role="progressbar" style="width: @(progress.ProcessedFolders % 100)%"></div>
+                                </div>
+                            </div>
+                            <p><strong>Current Path:</strong> @progress.CurrentPath</p>
+                            <p><strong>Processed Files:</strong> @progress.ProcessedFiles.ToString("N0")</p>
+                            <p><strong>Processed Folders:</strong> @progress.ProcessedFolders.ToString("N0")</p>
+                            <p><strong>Current Size:</strong> @FormatBytes(progress.CurrentSize)</p>
+                            <p><strong>Elapsed Time:</strong> @((DateTime.UtcNow - progress.StartTime).ToString(@"hh\:mm\:ss"))</p>
+                        }
+                        else if (!ScanService.IsScanning)
+                        {
+                            <p class="text-muted">No scan in progress. Click "Start Full Scan" to begin.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool IsLoading = true;
+    private List<tbl_scan_roots> ScanRoots = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadScanRoots();
+        ScanService.ScanProgressChanged += OnScanProgressChanged;
+        ScanService.ScanCompleted += OnScanCompleted;
+    }
+    
+    private async Task LoadScanRoots()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            ScanRoots = await context.tbl_scan_roots.ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error loading scan roots: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private async Task AddScanRoot()
+    {
+        try
+        {
+            var selectedPath = FolderDialog.ShowFolderDialog("Select folder to scan");
+            if (!string.IsNullOrEmpty(selectedPath))
+            {
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                
+                // Check if already exists
+                var existing = await context.tbl_scan_roots
+                    .FirstOrDefaultAsync(sr => sr.path == selectedPath);
+                    
+                if (existing != null)
+                {
+                    await JS.InvokeVoidAsync("alert", "This path is already configured for scanning.");
+                    return;
+                }
+                
+                var scanRoot = new tbl_scan_roots
+                {
+                    path = selectedPath,
+                    display_name = Path.GetFileName(selectedPath) ?? selectedPath,
+                    is_active = true,
+                    include_subdirectories = true,
+                    follow_symlinks = false
+                };
+                
+                context.tbl_scan_roots.Add(scanRoot);
+                await context.SaveChangesAsync();
+                
+                await LoadScanRoots();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error adding scan root: {ex.Message}");
+        }
+    }
+    
+    private async Task UpdateScanRoot(tbl_scan_roots scanRoot)
+    {
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            context.tbl_scan_roots.Update(scanRoot);
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error updating scan root: {ex.Message}");
+        }
+    }
+    
+    private async Task RemoveScanRoot(int scanRootId)
+    {
+        try
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to remove this scan root? All associated data will be deleted.");
+            if (confirmed)
+            {
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                var scanRoot = await context.tbl_scan_roots.FindAsync(scanRootId);
+                if (scanRoot != null)
+                {
+                    context.tbl_scan_roots.Remove(scanRoot);
+                    await context.SaveChangesAsync();
+                    await LoadScanRoots();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error removing scan root: {ex.Message}");
+        }
+    }
+    
+    private async Task StartScan(int scanRootId)
+    {
+        try
+        {
+            await ScanService.StartScanAsync(scanRootId);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error starting scan: {ex.Message}");
+        }
+    }
+    
+    private async Task StartFullScan()
+    {
+        try
+        {
+            await ScanService.StartFullScanAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error starting full scan: {ex.Message}");
+        }
+    }
+    
+    private void CancelScan()
+    {
+        ScanService.CancelScan();
+    }
+    
+    private void OnScanProgressChanged(object? sender, ScanProgressEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnScanCompleted(object? sender, ScanCompletedEventArgs e)
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await LoadScanRoots(); // Refresh scan root statistics
+            
+            if (e.Success)
+            {
+                await JS.InvokeVoidAsync("alert", $"Scan completed! Processed {e.FilesScanned:N0} files in {e.Duration.TotalSeconds:F1} seconds.");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", $"Scan failed: {e.ErrorMessage}");
+            }
+        });
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+    
+    public void Dispose()
+    {
+        ScanService.ScanProgressChanged -= OnScanProgressChanged;
+        ScanService.ScanCompleted -= OnScanCompleted;
+    }
+}

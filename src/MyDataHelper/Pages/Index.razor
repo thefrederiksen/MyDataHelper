@@ -1,0 +1,264 @@
+@page "/"
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IDiskReportService ReportService
+
+<PageTitle>MyDataHelper - Dashboard</PageTitle>
+
+<h1>Disk Space Analysis Dashboard</h1>
+
+<div class="dashboard-container">
+    @if (IsLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (Report != null)
+    {
+        <div class="row">
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Size</h5>
+                        <p class="card-text display-6">@FormatBytes(Report.TotalSize)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Files</h5>
+                        <p class="card-text display-6">@Report.TotalFiles.ToString("N0")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Folders</h5>
+                        <p class="card-text display-6">@Report.TotalFolders.ToString("N0")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h5 class="card-title">Scan Roots</h5>
+                        <p class="card-text display-6">@Report.ScanRoots.Count</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Scan Roots</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (Report.ScanRoots.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Path</th>
+                                            <th>Size</th>
+                                            <th>Files</th>
+                                            <th>Last Scanned</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var root in Report.ScanRoots)
+                                        {
+                                            <tr>
+                                                <td>@root.DisplayName</td>
+                                                <td>@FormatBytes(root.Size)</td>
+                                                <td>@root.FileCount.ToString("N0")</td>
+                                                <td>@(root.LastScanned?.ToString("g") ?? "Never")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No scan roots configured. <a href="/scan">Add scan roots</a></p>
+                        }
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>File Types</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (Report.FileTypeBreakdown.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Category</th>
+                                            <th>Size</th>
+                                            <th>Files</th>
+                                            <th>%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var type in Report.FileTypeBreakdown.Take(10))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <span class="color-box" style="background-color: @type.ColorCode"></span>
+                                                    @type.Category
+                                                </td>
+                                                <td>@FormatBytes(type.TotalSize)</td>
+                                                <td>@type.FileCount.ToString("N0")</td>
+                                                <td>@type.PercentageOfTotal.ToString("F1")%</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No file data available. Run a scan to see file types.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (Report.LargestFiles.Any())
+        {
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Largest Files</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Path</th>
+                                            <th>Size</th>
+                                            <th>Modified</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var file in Report.LargestFiles.Take(10))
+                                        {
+                                            <tr>
+                                                <td>@file.Name</td>
+                                                <td class="text-truncate" style="max-width: 300px;" title="@file.FullPath">
+                                                    @file.FullPath
+                                                </td>
+                                                <td>@FormatBytes(file.Size)</td>
+                                                <td>@file.LastModified.ToString("g")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <h4>Welcome to MyDataHelper!</h4>
+            <p>Get started by <a href="/scan">adding folders to scan</a>.</p>
+        </div>
+    }
+</div>
+
+<style>
+    .dashboard-container {
+        padding: 20px 0;
+    }
+    
+    .stat-card {
+        text-align: center;
+        border-left: 4px solid #007bff;
+    }
+    
+    .stat-card .display-6 {
+        font-size: 2rem;
+        font-weight: 300;
+    }
+    
+    .color-box {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-right: 8px;
+        border-radius: 2px;
+    }
+    
+    .card {
+        margin-bottom: 20px;
+        box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,.075);
+    }
+    
+    .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+    }
+</style>
+
+@code {
+    private bool IsLoading = true;
+    private DiskUsageReport? Report;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+    
+    private async Task LoadDashboardData()
+    {
+        try
+        {
+            IsLoading = true;
+            Report = await ReportService.GenerateReportAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogException(ex, "Failed to load dashboard data");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

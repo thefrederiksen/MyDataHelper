@@ -1,0 +1,77 @@
+@inject IScanStatusService ScanStatusService
+@implements IDisposable
+
+<div class="scan-status-indicator">
+    @if (IsScanning)
+    {
+        <div class="scanning">
+            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+            <span>@Status (@Progress%)</span>
+        </div>
+    }
+    else
+    {
+        <div class="idle">
+            <span class="oi oi-circle-check me-2" aria-hidden="true"></span>
+            <span>@Status</span>
+        </div>
+    }
+</div>
+
+<style>
+    .scan-status-indicator {
+        display: flex;
+        align-items: center;
+        margin-right: auto;
+        font-size: 0.9rem;
+    }
+    
+    .scanning {
+        color: #0366d6;
+    }
+    
+    .idle {
+        color: #28a745;
+    }
+    
+    .spinner-border-sm {
+        width: 1rem;
+        height: 1rem;
+        border-width: 0.15em;
+    }
+</style>
+
+@code {
+    private string Status = "Ready";
+    private int Progress = 0;
+    private bool IsScanning = false;
+    
+    protected override void OnInitialized()
+    {
+        ScanStatusService.StatusChanged += OnStatusChanged;
+        UpdateStatus();
+    }
+    
+    private void OnStatusChanged(object? sender, ScanStatusEventArgs e)
+    {
+        InvokeAsync(() =>
+        {
+            Status = e.Status;
+            Progress = e.Progress;
+            IsScanning = e.IsScanning;
+            StateHasChanged();
+        });
+    }
+    
+    private void UpdateStatus()
+    {
+        Status = ScanStatusService.CurrentStatus;
+        Progress = ScanStatusService.Progress;
+        IsScanning = ScanStatusService.IsScanning;
+    }
+    
+    public void Dispose()
+    {
+        ScanStatusService.StatusChanged -= OnStatusChanged;
+    }
+}

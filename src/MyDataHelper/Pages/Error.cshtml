@@ -1,0 +1,28 @@
+@page "/Error"
+@model MyDataHelper.Pages.ErrorModel
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Error - MyDataHelper</title>
+    <link href="~/css/bootstrap/bootstrap.min.css" rel="stylesheet" />
+    <link href="~/css/site.css" rel="stylesheet" />
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">An Error Occurred!</h4>
+                    <p>Something went wrong while processing your request.</p>
+                    <hr>
+                    <p class="mb-0">Please try again or contact support if the problem persists.</p>
+                </div>
+                <a href="/" class="btn btn-primary">Go Home</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
