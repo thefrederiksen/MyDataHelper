@@ -1,18 +1,75 @@
 @inherits LayoutComponentBase
+@inject NavigationManager Navigation
 
-<div class="page">
-    <div class="sidebar">
+<PageTitle>MyDataHelper</PageTitle>
+
+<div class="flex h-screen bg-gray-50">
+    <!-- Sidebar -->
+    <div class="@GetSidebarClasses()">
         <NavMenu />
     </div>
 
-    <main>
-        <div class="top-row px-4">
-            <ScanStatusIndicator />
-            <a href="/about" class="ml-md-auto">About</a>
-        </div>
+    <!-- Mobile sidebar backdrop -->
+    @if (isSidebarOpen)
+    {
+        <div class="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden" @onclick="ToggleSidebar"></div>
+    }
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+        <!-- Header -->
+        <header class="bg-white shadow-sm border-b border-gray-200">
+            <div class="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center gap-4">
+                    <button class="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 lg:hidden" 
+                            @onclick="ToggleSidebar">
+                        <i class="bi bi-list text-xl"></i>
+                    </button>
+                    <h1 class="text-xl font-semibold text-gray-800">@GetPageTitle()</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <ScanStatusIndicator />
+                </div>
+            </div>
+        </header>
+
+        <!-- Page content -->
+        <main class="flex-1 overflow-y-auto bg-gray-50">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                @Body
+            </div>
+        </main>
+    </div>
 </div>
+
+@code {
+    private bool isSidebarOpen = false;
+
+    private void ToggleSidebar()
+    {
+        isSidebarOpen = !isSidebarOpen;
+    }
+
+    private string GetSidebarClasses()
+    {
+        var baseClasses = "fixed lg:static inset-y-0 left-0 z-50 w-64 bg-primary-600 transform transition-transform duration-300 ease-in-out lg:translate-x-0";
+        return isSidebarOpen ? baseClasses : $"{baseClasses} -translate-x-full";
+    }
+
+    private string GetPageTitle()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var path = uri.PathAndQuery.ToLower();
+        
+        return path switch
+        {
+            "/" or "/index" => "Dashboard",
+            "/scan" => "Disk Scan",
+            "/tree" => "Tree View",
+            "/duplicates" => "Duplicate Files",
+            "/report" => "Reports",
+            "/settings" => "Settings",
+            _ => "MyDataHelper"
+        };
+    }
+}

@@ -270,6 +270,7 @@ namespace MyDataHelper
             builder.Services.AddScoped<ISettingsService, SettingsService>();
             
             // Disk analysis services
+            builder.Services.AddSingleton<IDriveDetectionService, DriveDetectionService>();
             builder.Services.AddScoped<IDiskScanService, DiskScanService>();
             builder.Services.AddSingleton<IScanStatusService, ScanStatusService>();
             builder.Services.AddScoped<IFileAnalysisService, FileAnalysisService>();

@@ -1,0 +1,249 @@
+@using System.IO
+@inject IDriveDetectionService DriveDetection
+@inject IDiskScanService ScanService
+@inject ILogger<DriveSelector> Logger
+
+<div class="drive-selector">
+    @if (Drives == null || !Drives.Any())
+    {
+        <div class="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded">
+            <i class="bi bi-info-circle mr-2"></i>
+            No drives detected. Please check your system configuration.
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            @foreach (var drive in Drives)
+            {
+                <div class="@GetDriveCardClasses(drive.Name)" @onclick="() => ToggleDriveSelection(drive)">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center">
+                            <input type="checkbox" 
+                                   class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mr-3 cursor-pointer"
+                                   checked="@SelectedDrives.Contains(drive.Name)"
+                                   @onclick:stopPropagation="true"
+                                   @onchange="() => ToggleDriveSelection(drive)" />
+                            <label class="cursor-pointer select-none">
+                                <i class="@drive.DriveIcon mr-2"></i>
+                                <span class="font-semibold text-gray-900">@drive.DisplayName</span>
+                            </label>
+                        </div>
+                        <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">@drive.DriveTypeDisplay</span>
+                    </div>
+                    
+                    @if (drive.IsReady)
+                    {
+                        <div class="pt-3 border-t border-gray-200">
+                            <div class="flex justify-between text-sm text-gray-600 mb-2">
+                                <span>@FormatBytes(drive.UsedSpace) used of @FormatBytes(drive.TotalSize)</span>
+                                <span>@drive.UsedPercentage.ToString("F1")%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                                <div class="@GetProgressBarClasses(drive.UsedPercentage) h-2 rounded-full transition-all duration-300" 
+                                     style="width: @drive.UsedPercentage%">
+                                </div>
+                            </div>
+                            <div class="text-sm text-green-600">
+                                <i class="bi bi-check-circle mr-1"></i>
+                                @FormatBytes(drive.TotalFreeSpace) free
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pt-3 border-t border-gray-200">
+                            <div class="text-orange-600 text-sm">
+                                <i class="bi bi-exclamation-triangle mr-2"></i>
+                                Drive not ready
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        
+        <div class="mt-6 flex flex-wrap items-center gap-3">
+            <div class="flex gap-2">
+                <button class="px-3 py-2 text-sm font-medium border border-primary-600 text-primary-600 rounded-md hover:bg-primary-50" @onclick="SelectAll">
+                    <i class="bi bi-check-square mr-2"></i>
+                    Select All
+                </button>
+                <button class="px-3 py-2 text-sm font-medium border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50" @onclick="SelectNone">
+                    <i class="bi bi-square mr-2"></i>
+                    Select None
+                </button>
+                <button class="px-3 py-2 text-sm font-medium border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50" @onclick="SelectFixed">
+                    <i class="bi bi-hdd mr-2"></i>
+                    Fixed Drives Only
+                </button>
+            </div>
+            
+            @if (SelectedDrives.Any())
+            {
+                <button class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center" 
+                        @onclick="StartScan" 
+                        disabled="@ScanService.IsScanning">
+                    @if (ScanService.IsScanning)
+                    {
+                        <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-play-fill mr-2"></i>
+                        <span>Scan Selected Drives (@SelectedDrives.Count)</span>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<List<string>> OnDrivesSelected { get; set; }
+    [Parameter] public EventCallback OnScanStarted { get; set; }
+    
+    private List<DriveInfoModel> Drives = new();
+    private HashSet<string> SelectedDrives = new();
+    private System.Threading.Timer? _refreshTimer;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDrives();
+        
+        // Start monitoring for drive changes
+        DriveDetection.DriveChanged += OnDriveChanged;
+        DriveDetection.StartMonitoring();
+        
+        // Refresh drive info every 10 seconds
+        _refreshTimer = new System.Threading.Timer(async _ => await RefreshDrives(), null, 
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        
+        // Auto-select all fixed drives by default
+        SelectFixed();
+    }
+    
+    private async Task LoadDrives()
+    {
+        try
+        {
+            Drives = DriveDetection.GetAllDrives().ToList();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load drives");
+        }
+    }
+    
+    private async Task RefreshDrives()
+    {
+        await LoadDrives();
+    }
+    
+    private void OnDriveChanged(object? sender, DriveChangedEventArgs e)
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadDrives();
+            StateHasChanged();
+        });
+    }
+    
+    private void ToggleDriveSelection(DriveInfoModel drive)
+    {
+        if (!drive.IsReady)
+            return;
+            
+        if (SelectedDrives.Contains(drive.Name))
+            SelectedDrives.Remove(drive.Name);
+        else
+            SelectedDrives.Add(drive.Name);
+            
+        OnDrivesSelected.InvokeAsync(SelectedDrives.ToList());
+    }
+    
+    private void SelectAll()
+    {
+        SelectedDrives.Clear();
+        foreach (var drive in Drives.Where(d => d.IsReady))
+        {
+            SelectedDrives.Add(drive.Name);
+        }
+        OnDrivesSelected.InvokeAsync(SelectedDrives.ToList());
+    }
+    
+    private void SelectNone()
+    {
+        SelectedDrives.Clear();
+        OnDrivesSelected.InvokeAsync(SelectedDrives.ToList());
+    }
+    
+    private void SelectFixed()
+    {
+        SelectedDrives.Clear();
+        foreach (var drive in Drives.Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+        {
+            SelectedDrives.Add(drive.Name);
+        }
+        OnDrivesSelected.InvokeAsync(SelectedDrives.ToList());
+    }
+    
+    private async Task StartScan()
+    {
+        if (!SelectedDrives.Any() || ScanService.IsScanning)
+            return;
+            
+        await OnScanStarted.InvokeAsync();
+        
+        // Start scanning the selected drives
+        await ScanService.StartMultipleDriveScanAsync(SelectedDrives);
+        
+        Logger.LogInformation("Started scan for drives: {Drives}", string.Join(", ", SelectedDrives));
+    }
+    
+    private string GetDriveCardClasses(string driveName)
+    {
+        var baseClasses = "bg-white border-2 rounded-lg p-4 cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary-600";
+        
+        if (SelectedDrives.Contains(driveName))
+        {
+            return $"{baseClasses} border-primary-600 bg-primary-50";
+        }
+        
+        return $"{baseClasses} border-gray-200";
+    }
+    
+    private string GetProgressBarClasses(double percentage)
+    {
+        return percentage switch
+        {
+            >= 90 => "bg-red-500",
+            >= 75 => "bg-yellow-500",
+            _ => "bg-primary-600"
+        };
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+    
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        DriveDetection.DriveChanged -= OnDriveChanged;
+        DriveDetection.StopMonitoring();
+    }
+}

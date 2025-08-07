@@ -1,0 +1,14 @@
+{
+  "name": "mydatahelper",
+  "version": "1.0.0",
+  "description": "MyDataHelper Tailwind CSS Build",
+  "scripts": {
+    "build-css": "tailwindcss -i ./wwwroot/css/input.css -o ./wwwroot/css/output.css --watch",
+    "build-css-prod": "tailwindcss -i ./wwwroot/css/input.css -o ./wwwroot/css/output.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "@tailwindcss/forms": "^0.5.7",
+    "@tailwindcss/typography": "^0.5.10"
+  }
+}

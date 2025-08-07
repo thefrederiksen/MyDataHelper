@@ -1,0 +1,84 @@
+@inject NavigationManager Navigation
+@inject IDiskScanService ScanService
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-hdd-stack-fill me-2"></i>
+            MyDataHelper
+        </a>
+        
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                        <i class="bi bi-speedometer2 me-1"></i>
+                        Dashboard
+                    </NavLink>
+                </li>
+                <li class="nav-item">
+                    <NavLink class="nav-link" href="scan">
+                        <i class="bi bi-arrow-repeat me-1"></i>
+                        Scan
+                    </NavLink>
+                </li>
+                <li class="nav-item">
+                    <NavLink class="nav-link" href="tree">
+                        <i class="bi bi-diagram-3 me-1"></i>
+                        Tree View
+                    </NavLink>
+                </li>
+                <li class="nav-item">
+                    <NavLink class="nav-link" href="duplicates">
+                        <i class="bi bi-files me-1"></i>
+                        Duplicates
+                    </NavLink>
+                </li>
+                <li class="nav-item">
+                    <NavLink class="nav-link" href="report">
+                        <i class="bi bi-file-earmark-text me-1"></i>
+                        Reports
+                    </NavLink>
+                </li>
+            </ul>
+            
+            <div class="d-flex align-items-center">
+                <ScanStatusIndicator />
+            </div>
+        </div>
+    </div>
+</nav>
+
+<style>
+    .navbar {
+        box-shadow: 0 2px 4px rgba(0,0,0,.1);
+    }
+    
+    .navbar-brand {
+        font-weight: 600;
+        font-size: 1.25rem;
+    }
+    
+    .nav-link {
+        padding: 0.5rem 1rem !important;
+        transition: background-color 0.2s;
+    }
+    
+    .nav-link:hover {
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 4px;
+    }
+    
+    .nav-link.active {
+        background-color: rgba(255,255,255,0.15);
+        border-radius: 4px;
+    }
+</style>
+
+@code {
+    
+}

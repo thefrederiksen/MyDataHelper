@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,6 +15,8 @@ namespace MyDataHelper.Services
         
         Task StartScanAsync(int scanRootId, ScanType scanType = ScanType.Full, CancellationToken cancellationToken = default);
         Task StartFullScanAsync(CancellationToken cancellationToken = default);
+        Task StartDriveScanAsync(string driveLetter, CancellationToken cancellationToken = default);
+        Task StartMultipleDriveScanAsync(IEnumerable<string> driveLetters, CancellationToken cancellationToken = default);
         void CancelScan();
     }
 }

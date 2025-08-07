@@ -74,6 +74,40 @@ namespace MyDataHelper.Services
             _cancellationTokenSource?.Cancel();
         }
         
+        public async Task StartDriveScanAsync(string driveLetter, CancellationToken cancellationToken = default)
+        {
+            if (IsScanning)
+            {
+                _logger.LogWarning("Scan already in progress");
+                return;
+            }
+            
+            // Normalize drive letter
+            if (!driveLetter.EndsWith(":\\"))
+            {
+                driveLetter = driveLetter.TrimEnd(':') + ":\\";
+            }
+            
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _scanTask = Task.Run(() => PerformDriveScanAsync(driveLetter, _cancellationTokenSource.Token), _cancellationTokenSource.Token);
+            
+            await Task.CompletedTask;
+        }
+        
+        public async Task StartMultipleDriveScanAsync(IEnumerable<string> driveLetters, CancellationToken cancellationToken = default)
+        {
+            if (IsScanning)
+            {
+                _logger.LogWarning("Scan already in progress");
+                return;
+            }
+            
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _scanTask = Task.Run(() => PerformMultipleDriveScanAsync(driveLetters, _cancellationTokenSource.Token), _cancellationTokenSource.Token);
+            
+            await Task.CompletedTask;
+        }
+        
         private async Task PerformFullScanAsync(CancellationToken cancellationToken)
         {
             try
@@ -568,6 +602,81 @@ namespace MyDataHelper.Services
             int bi = (int)((b + m) * 255);
             
             return $"#{ri:X2}{gi:X2}{bi:X2}";
+        }
+        
+        private async Task PerformDriveScanAsync(string driveLetter, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation($"Starting scan for drive {driveLetter}");
+                
+                using var scope = _serviceProvider.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<MyDataHelperDbContext>();
+                
+                // Check if scan root exists for this drive
+                var scanRoot = await dbContext.tbl_scan_roots
+                    .FirstOrDefaultAsync(sr => sr.path == driveLetter, cancellationToken);
+                
+                if (scanRoot == null)
+                {
+                    // Create new scan root for the drive
+                    var driveInfo = new DriveInfo(driveLetter);
+                    scanRoot = new tbl_scan_roots
+                    {
+                        path = driveLetter,
+                        display_name = driveInfo.IsReady && !string.IsNullOrEmpty(driveInfo.VolumeLabel) 
+                            ? $"{driveInfo.VolumeLabel} ({driveLetter})" 
+                            : driveLetter,
+                        is_active = true,
+                        include_subdirectories = true,
+                        follow_symlinks = false,
+                        drive_type = driveInfo.DriveType.ToString(),
+                        volume_label = driveInfo.IsReady ? driveInfo.VolumeLabel : null,
+                        total_space = driveInfo.IsReady ? driveInfo.TotalSize : null,
+                        free_space = driveInfo.IsReady ? driveInfo.TotalFreeSpace : null
+                    };
+                    
+                    dbContext.tbl_scan_roots.Add(scanRoot);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+                
+                // Perform the actual scan
+                await PerformScanAsync(scanRoot.id, ScanType.Full, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error during drive scan for {driveLetter}");
+                ScanCompleted?.Invoke(this, new ScanCompletedEventArgs 
+                { 
+                    Success = false, 
+                    ErrorMessage = ex.Message 
+                });
+            }
+        }
+        
+        private async Task PerformMultipleDriveScanAsync(IEnumerable<string> driveLetters, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation($"Starting scan for multiple drives: {string.Join(", ", driveLetters)}");
+                
+                foreach (var driveLetter in driveLetters)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        break;
+                    
+                    await PerformDriveScanAsync(driveLetter, cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during multiple drive scan");
+                ScanCompleted?.Invoke(this, new ScanCompletedEventArgs 
+                { 
+                    Success = false, 
+                    ErrorMessage = ex.Message 
+                });
+            }
         }
     }
     
