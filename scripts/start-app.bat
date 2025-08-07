@@ -27,16 +27,17 @@ if %errorlevel% neq 0 (
 )
 
 echo Starting MyDataHelper...
-echo.
 echo The application will start in the system tray.
 echo Look for the disk icon in your system tray (near the clock).
 echo.
 echo To access the web interface, open: http://localhost:5250
 echo.
-echo Press Ctrl+C to stop the application.
-echo ========================================
+
+REM Run the built executable directly (no console window)
+start "" "bin\Debug\net8.0-windows\win-x64\MyDataHelper.exe"
+
 echo.
-
-dotnet run --no-build --configuration Debug
-
-pause
+echo ========================================
+echo   MyDataHelper is starting...
+echo ========================================
+echo Check the system tray for the application icon.

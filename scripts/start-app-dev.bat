@@ -40,10 +40,7 @@ echo Starting MyDataHelper with verbose logging...
 echo.
 echo System Tray: Look for the disk icon near the clock
 echo Web Interface: http://localhost:5250
-echo.
-echo Press Ctrl+C to stop the application
 echo ========================================
-echo.
 
 set ASPNETCORE_ENVIRONMENT=Development
 set ASPNETCORE_URLS=http://localhost:5250
@@ -51,6 +48,12 @@ set Logging__LogLevel__Default=Debug
 set Logging__LogLevel__Microsoft=Information
 set Logging__LogLevel__Microsoft.Hosting.Lifetime=Information
 
-dotnet run --no-build --configuration Debug
+REM Run the application in a new window with development settings
+start "MyDataHelper (Dev)" dotnet run --no-build --configuration Debug
 
-pause
+echo.
+echo ========================================
+echo   MyDataHelper is starting in dev mode...
+echo ========================================
+echo Check the system tray for the application icon.
+echo Development output will appear in the new window.

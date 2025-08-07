@@ -31,48 +31,57 @@ namespace MyDataHelper.Services
                 // Create context menu
                 _contextMenu = new ContextMenuStrip();
             
-            var openMenuItem = new ToolStripMenuItem("Open MyDataHelper");
-            openMenuItem.Font = new Font(openMenuItem.Font, FontStyle.Bold);
-            openMenuItem.Click += (s, e) => OpenApplication();
-            
-            var scanMenuItem = new ToolStripMenuItem("Start Full Scan");
-            scanMenuItem.Click += (s, e) => StartFullScan();
-            
-            _contextMenu.Items.Add(openMenuItem);
-            _contextMenu.Items.Add(scanMenuItem);
-            _contextMenu.Items.Add(new ToolStripSeparator());
-            
-            var settingsMenuItem = new ToolStripMenuItem("Settings");
-            settingsMenuItem.Click += (s, e) => OpenSettings();
-            
-            var aboutMenuItem = new ToolStripMenuItem("About");
-            aboutMenuItem.Click += (s, e) => ShowAbout();
-            
-            _contextMenu.Items.Add(settingsMenuItem);
-            _contextMenu.Items.Add(aboutMenuItem);
-            _contextMenu.Items.Add(new ToolStripSeparator());
-            
-            var exitMenuItem = new ToolStripMenuItem("Exit");
-            exitMenuItem.Click += (s, e) => ExitApplication();
-            
-            _contextMenu.Items.Add(exitMenuItem);
-            
-            // Create tray icon
-            _trayIcon = new NotifyIcon
-            {
-                Text = "MyDataHelper - Disk Space Analyzer",
-                Visible = true
-                // Don't assign ContextMenuStrip directly - we'll handle clicks manually
-            };
-            
-            // Set icon - create a simple one if no valid icon file exists
-            _trayIcon.Icon = GetOrCreateIcon();
-            
-            // Handle both left and right clicks
-            _trayIcon.MouseClick += TrayIcon_MouseClick;
-            _trayIcon.DoubleClick += (s, e) => OpenApplication();
-            
-                // Don't show initial balloon - it will be shown after startup completes
+                var openMenuItem = new ToolStripMenuItem("Open MyDataHelper");
+                openMenuItem.Font = new Font(openMenuItem.Font, FontStyle.Bold);
+                openMenuItem.Click += (s, e) => OpenApplication();
+                
+                var scanMenuItem = new ToolStripMenuItem("Start Full Scan");
+                scanMenuItem.Click += (s, e) => StartFullScan();
+                
+                _contextMenu.Items.Add(openMenuItem);
+                _contextMenu.Items.Add(scanMenuItem);
+                _contextMenu.Items.Add(new ToolStripSeparator());
+                
+                var settingsMenuItem = new ToolStripMenuItem("Settings");
+                settingsMenuItem.Click += (s, e) => OpenSettings();
+                
+                var aboutMenuItem = new ToolStripMenuItem("About");
+                aboutMenuItem.Click += (s, e) => ShowAbout();
+                
+                _contextMenu.Items.Add(settingsMenuItem);
+                _contextMenu.Items.Add(aboutMenuItem);
+                _contextMenu.Items.Add(new ToolStripSeparator());
+                
+                var exitMenuItem = new ToolStripMenuItem("Exit");
+                exitMenuItem.Click += (s, e) => ExitApplication();
+                
+                _contextMenu.Items.Add(exitMenuItem);
+                
+                // Create tray icon
+                _trayIcon = new NotifyIcon
+                {
+                    Text = "MyDataHelper - Disk Space Analyzer",
+                    Visible = true,
+                    ContextMenuStrip = _contextMenu // Assign directly for better responsiveness
+                };
+                
+                // Set icon - create a simple one if no valid icon file exists
+                _trayIcon.Icon = GetOrCreateIcon();
+                
+                // Handle left-click to show menu (Windows 11 style)
+                _trayIcon.MouseClick += (s, e) =>
+                {
+                    if (e.Button == MouseButtons.Left)
+                    {
+                        // Show context menu on left click
+                        var mi = typeof(NotifyIcon).GetMethod("ShowContextMenu",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        mi?.Invoke(_trayIcon, null);
+                    }
+                };
+                
+                // Double-click to open application
+                _trayIcon.DoubleClick += (s, e) => OpenApplication();
                 
                 Logger.Info("System tray service initialized successfully");
             }
@@ -163,16 +172,26 @@ namespace MyDataHelper.Services
         
         private void ExitApplication()
         {
-            var result = MessageBox.Show(
-                "Are you sure you want to exit MyDataHelper?", 
-                "Confirm Exit", 
-                MessageBoxButtons.YesNo, 
-                MessageBoxIcon.Question);
-                
-            if (result == DialogResult.Yes)
+            try
             {
-                Dispose();
+                Logger.Info("Exiting MyDataHelper application...");
+                
+                // Hide and dispose tray icon first
+                if (_trayIcon != null)
+                {
+                    _trayIcon.Visible = false;
+                    _trayIcon.Dispose();
+                    _trayIcon = null;
+                }
+                
+                // Exit the Windows Forms application loop
                 Application.Exit();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogException(ex, "Error during application exit");
+                // Force exit if graceful shutdown fails
+                Environment.Exit(0);
             }
         }
         
@@ -194,25 +213,6 @@ namespace MyDataHelper.Services
             }
         }
         
-        private void TrayIcon_MouseClick(object? sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                // Show context menu on left click
-                if (_contextMenu != null)
-                {
-                    // Use reflection to show the context menu at cursor position
-                    var mi = typeof(NotifyIcon).GetMethod("ShowContextMenu", 
-                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                    mi?.Invoke(_trayIcon, null);
-                }
-            }
-            else if (e.Button == MouseButtons.Right)
-            {
-                // Right click also shows the menu (default behavior)
-                _trayIcon!.ContextMenuStrip = _contextMenu;
-            }
-        }
         
         private Icon GetOrCreateIcon()
         {

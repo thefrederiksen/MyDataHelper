@@ -106,30 +106,20 @@ namespace MyDataHelper
             await InitializeDatabase(app, pathService);
             
             UpdateStatus("Starting system tray...", 85);
-            await Task.Delay(100);
             
-            // Initialize system tray on UI thread with error handling
-            try
+            // Initialize system tray on UI thread
+            if (startupForm?.InvokeRequired == true)
             {
-                if (startupForm?.InvokeRequired == true)
-                {
-                    startupForm.Invoke(new Action(() =>
-                    {
-                        var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
-                        systemTrayService.Initialize();
-                    }));
-                }
-                else
+                startupForm.Invoke(new Action(() =>
                 {
                     var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
                     systemTrayService.Initialize();
-                }
+                }));
             }
-            catch (Exception ex)
+            else
             {
-                StartupErrorLogger.LogError("Failed to initialize system tray", ex);
-                Logger.LogException(ex, "System tray initialization failed");
-                // Continue without system tray - don't fail the entire startup
+                var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
+                systemTrayService.Initialize();
             }
             
             UpdateStatus("Starting web server...", 90);
@@ -150,51 +140,31 @@ namespace MyDataHelper
             // Wait for server to be ready
             await Task.Delay(2000);
             
-            UpdateStatus("Ready! Opening browser...", 100);
+            UpdateStatus("Ready!", 100);
             await Task.Delay(500);
             
-            // Close startup form with fade effect and open browser if needed
+            // Close startup form and open browser if needed
             if (startupForm?.InvokeRequired == true)
             {
                 startupForm.Invoke(new Action(() =>
                 {
-                    startupForm.CloseWithFade();
+                    startupForm.Close();
+                    startupForm = null;
                     
                     if (!startMinimized)
                     {
-                        // Open browser after fade completes
-                        Task.Delay(800).ContinueWith(_ => OpenBrowser());
-                        
-                        // Show notification after a brief delay
-                        Task.Delay(1500).ContinueWith(_ => 
-                        {
-                            var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
-                            systemTrayService.ShowBalloonTip(
-                                "MyDataHelper Started",
-                                "Click the tray icon to access options",
-                                ToolTipIcon.Info);
-                        });
+                        OpenBrowser();
                     }
                 }));
             }
             else
             {
-                startupForm?.CloseWithFade();
+                startupForm?.Close();
+                startupForm = null;
                 
                 if (!startMinimized)
                 {
-                    // Open browser after fade completes
-                    Task.Delay(800).ContinueWith(_ => OpenBrowser());
-                    
-                    // Show notification after a brief delay
-                    Task.Delay(1500).ContinueWith(_ => 
-                    {
-                        var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
-                        systemTrayService.ShowBalloonTip(
-                            "MyDataHelper Started",
-                            "Click the tray icon to access options",
-                            ToolTipIcon.Info);
-                    });
+                    OpenBrowser();
                 }
             }
             }
