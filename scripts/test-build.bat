@@ -1,14 +1,16 @@
 @echo off
 echo ========================================
-echo   Testing MyDataHelper Build
+echo Testing MyDataHelper Build
 echo ========================================
 echo.
 
-REM Check if dotnet is installed
+cd /d "%~dp0\.."
+
+echo Checking .NET SDK...
 dotnet --version >nul 2>&1
-if errorlevel 1 (
+if %errorlevel% neq 0 (
     echo ERROR: .NET SDK is not installed or not in PATH
-    echo Please install .NET 8 SDK from https://dotnet.microsoft.com/download
+    echo Please install .NET 8.0 SDK from https://dotnet.microsoft.com/download
     pause
     exit /b 1
 )
@@ -17,41 +19,38 @@ echo Detected .NET version:
 dotnet --version
 echo.
 
-REM Restore packages
 echo Restoring NuGet packages...
-dotnet restore src\MyDataHelper.sln
-if errorlevel 1 (
-    echo ERROR: Package restore failed!
+dotnet restore src\MyDataHelper\MyDataHelper.csproj
+if %errorlevel% neq 0 (
+    echo ERROR: Package restore failed
     pause
     exit /b 1
 )
 
-REM Build Debug
 echo.
 echo Building Debug configuration...
 dotnet build src\MyDataHelper\MyDataHelper.csproj -c Debug --no-restore
-if errorlevel 1 (
-    echo ERROR: Debug build failed!
+if %errorlevel% neq 0 (
+    echo ERROR: Debug build failed
     pause
     exit /b 1
 )
 
-REM Build Release
 echo.
 echo Building Release configuration...
 dotnet build src\MyDataHelper\MyDataHelper.csproj -c Release --no-restore
-if errorlevel 1 (
-    echo ERROR: Release build failed!
+if %errorlevel% neq 0 (
+    echo ERROR: Release build failed
     pause
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo   Build test completed successfully!
+echo Build test completed successfully!
 echo ========================================
 echo.
 echo Both Debug and Release configurations built without errors.
-echo You can now run start-app.bat to launch the application.
+echo You can now run scripts\start-app.bat to launch the application.
 echo.
 pause

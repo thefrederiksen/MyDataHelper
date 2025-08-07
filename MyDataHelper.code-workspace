@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+		"settings": {
+		"workbench.colorCustomizations": {
+			"titleBar.activeBackground": "#238d4f",
+			"titleBar.activeForeground": "#ffffff",
+			"titleBar.inactiveBackground": "#238d4f",
+			"titleBar.inactiveForeground": "#e3e3e3"
+		},
+		"window.title": "MyDataHelper",
+		"window.titleBarStyle": "custom",
+	}
+}

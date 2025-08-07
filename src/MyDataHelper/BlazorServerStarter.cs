@@ -76,7 +76,7 @@ namespace MyDataHelper
                 // Configure Kestrel
                 builder.WebHost.ConfigureKestrel(serverOptions =>
                 {
-                    serverOptions.ListenLocalhost(5113, listenOptions =>
+                    serverOptions.ListenLocalhost(5250, listenOptions =>
                     {
                         listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
                     });
@@ -106,20 +106,30 @@ namespace MyDataHelper
             await InitializeDatabase(app, pathService);
             
             UpdateStatus("Starting system tray...", 85);
+            await Task.Delay(100);
             
-            // Initialize system tray on UI thread
-            if (startupForm?.InvokeRequired == true)
+            // Initialize system tray on UI thread with error handling
+            try
             {
-                startupForm.Invoke(new Action(() =>
+                if (startupForm?.InvokeRequired == true)
+                {
+                    startupForm.Invoke(new Action(() =>
+                    {
+                        var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
+                        systemTrayService.Initialize();
+                    }));
+                }
+                else
                 {
                     var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
                     systemTrayService.Initialize();
-                }));
+                }
             }
-            else
+            catch (Exception ex)
             {
-                var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
-                systemTrayService.Initialize();
+                StartupErrorLogger.LogError("Failed to initialize system tray", ex);
+                Logger.LogException(ex, "System tray initialization failed");
+                // Continue without system tray - don't fail the entire startup
             }
             
             UpdateStatus("Starting web server...", 90);
@@ -140,31 +150,51 @@ namespace MyDataHelper
             // Wait for server to be ready
             await Task.Delay(2000);
             
-            UpdateStatus("Ready!", 100);
+            UpdateStatus("Ready! Opening browser...", 100);
             await Task.Delay(500);
             
-            // Close startup form and open browser if needed
+            // Close startup form with fade effect and open browser if needed
             if (startupForm?.InvokeRequired == true)
             {
                 startupForm.Invoke(new Action(() =>
                 {
-                    startupForm.Close();
-                    startupForm = null;
+                    startupForm.CloseWithFade();
                     
                     if (!startMinimized)
                     {
-                        OpenBrowser();
+                        // Open browser after fade completes
+                        Task.Delay(800).ContinueWith(_ => OpenBrowser());
+                        
+                        // Show notification after a brief delay
+                        Task.Delay(1500).ContinueWith(_ => 
+                        {
+                            var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
+                            systemTrayService.ShowBalloonTip(
+                                "MyDataHelper Started",
+                                "Click the tray icon to access options",
+                                ToolTipIcon.Info);
+                        });
                     }
                 }));
             }
             else
             {
-                startupForm?.Close();
-                startupForm = null;
+                startupForm?.CloseWithFade();
                 
                 if (!startMinimized)
                 {
-                    OpenBrowser();
+                    // Open browser after fade completes
+                    Task.Delay(800).ContinueWith(_ => OpenBrowser());
+                    
+                    // Show notification after a brief delay
+                    Task.Delay(1500).ContinueWith(_ => 
+                    {
+                        var systemTrayService = app.Services.GetRequiredService<SystemTrayService>();
+                        systemTrayService.ShowBalloonTip(
+                            "MyDataHelper Started",
+                            "Click the tray icon to access options",
+                            ToolTipIcon.Info);
+                    });
                 }
             }
             }
@@ -328,7 +358,7 @@ namespace MyDataHelper
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "http://localhost:5113",
+                    FileName = "http://localhost:5250",
                     UseShellExecute = true
                 });
                 Logger.Info("Opened browser to Blazor application");

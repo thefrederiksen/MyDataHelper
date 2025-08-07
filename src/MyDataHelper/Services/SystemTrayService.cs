@@ -1,12 +1,18 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 
 namespace MyDataHelper.Services
 {
     public class SystemTrayService
     {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool DestroyIcon(IntPtr handle);
+        
         private NotifyIcon? _trayIcon;
         private ContextMenuStrip? _contextMenu;
         private readonly IServiceProvider _serviceProvider;
@@ -18,8 +24,12 @@ namespace MyDataHelper.Services
         
         public void Initialize()
         {
-            // Create context menu
-            _contextMenu = new ContextMenuStrip();
+            try
+            {
+                Logger.Info("Initializing system tray service");
+                
+                // Create context menu
+                _contextMenu = new ContextMenuStrip();
             
             var openMenuItem = new ToolStripMenuItem("Open MyDataHelper");
             openMenuItem.Font = new Font(openMenuItem.Font, FontStyle.Bold);
@@ -51,37 +61,27 @@ namespace MyDataHelper.Services
             _trayIcon = new NotifyIcon
             {
                 Text = "MyDataHelper - Disk Space Analyzer",
-                Visible = true,
-                ContextMenuStrip = _contextMenu
+                Visible = true
+                // Don't assign ContextMenuStrip directly - we'll handle clicks manually
             };
             
-            // Try to load icon
-            try
-            {
-                var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MyDataHelper.ico");
-                if (File.Exists(iconPath))
-                {
-                    _trayIcon.Icon = new Icon(iconPath);
-                }
-                else
-                {
-                    // Use default application icon
-                    _trayIcon.Icon = SystemIcons.Application;
-                }
-            }
-            catch
-            {
-                _trayIcon.Icon = SystemIcons.Application;
-            }
+            // Set icon - create a simple one if no valid icon file exists
+            _trayIcon.Icon = GetOrCreateIcon();
             
+            // Handle both left and right clicks
+            _trayIcon.MouseClick += TrayIcon_MouseClick;
             _trayIcon.DoubleClick += (s, e) => OpenApplication();
             
-            // Show initial balloon
-            _trayIcon.ShowBalloonTip(
-                3000,
-                "MyDataHelper",
-                "MyDataHelper is running in the background",
-                ToolTipIcon.Info);
+                // Don't show initial balloon - it will be shown after startup completes
+                
+                Logger.Info("System tray service initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogException(ex, "Failed to initialize system tray");
+                StartupErrorLogger.LogError("Failed to initialize system tray", ex);
+                throw; // Re-throw to ensure startup fails properly
+            }
         }
         
         private void OpenApplication()
@@ -90,7 +90,7 @@ namespace MyDataHelper.Services
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "http://localhost:5113",
+                    FileName = "http://localhost:5250",
                     UseShellExecute = true
                 });
             }
@@ -139,7 +139,7 @@ namespace MyDataHelper.Services
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "http://localhost:5113/settings",
+                    FileName = "http://localhost:5250/settings",
                     UseShellExecute = true
                 });
             }
@@ -181,11 +181,114 @@ namespace MyDataHelper.Services
             _trayIcon?.ShowBalloonTip(3000, title, message, icon);
         }
         
+        public void ShowBalloonTip(string title, string text, ToolTipIcon icon)
+        {
+            _trayIcon?.ShowBalloonTip(3000, title, text, icon);
+        }
+        
         public void UpdateTooltip(string text)
         {
             if (_trayIcon != null)
             {
                 _trayIcon.Text = text.Length > 63 ? text.Substring(0, 60) + "..." : text;
+            }
+        }
+        
+        private void TrayIcon_MouseClick(object? sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                // Show context menu on left click
+                if (_contextMenu != null)
+                {
+                    // Use reflection to show the context menu at cursor position
+                    var mi = typeof(NotifyIcon).GetMethod("ShowContextMenu", 
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    mi?.Invoke(_trayIcon, null);
+                }
+            }
+            else if (e.Button == MouseButtons.Right)
+            {
+                // Right click also shows the menu (default behavior)
+                _trayIcon!.ContextMenuStrip = _contextMenu;
+            }
+        }
+        
+        private Icon GetOrCreateIcon()
+        {
+            try
+            {
+                // Try to load from file first
+                var iconPaths = new[] {
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MyDataHelper.ico"),
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "favicon.ico")
+                };
+                
+                foreach (var iconPath in iconPaths)
+                {
+                    if (File.Exists(iconPath))
+                    {
+                        try
+                        {
+                            return new Icon(iconPath);
+                        }
+                        catch
+                        {
+                            // File exists but is not a valid icon, continue
+                        }
+                    }
+                }
+                
+                // Try to extract from executable
+                try
+                {
+                    var exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                    if (exeIcon != null)
+                        return exeIcon;
+                }
+                catch { }
+                
+                // Create a simple icon programmatically as last resort
+                return CreateDefaultIcon();
+            }
+            catch
+            {
+                // Ultimate fallback
+                return SystemIcons.Application;
+            }
+        }
+        
+        private Icon CreateDefaultIcon()
+        {
+            // Create a simple 16x16 icon programmatically
+            using (var bmp = new Bitmap(16, 16))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.White);
+                    
+                    // Draw a simple disk icon
+                    using (var brush = new SolidBrush(Color.FromArgb(0, 120, 212)))
+                    {
+                        // Draw a cylinder shape (disk)
+                        g.FillEllipse(brush, 2, 2, 12, 4);
+                        g.FillRectangle(brush, 2, 4, 12, 8);
+                        g.FillEllipse(brush, 2, 10, 12, 4);
+                    }
+                    
+                    // Add highlight
+                    using (var pen = new Pen(Color.FromArgb(100, 255, 255, 255), 1))
+                    {
+                        g.DrawEllipse(pen, 2, 2, 12, 4);
+                    }
+                }
+                
+                // Convert bitmap to icon
+                IntPtr hIcon = bmp.GetHicon();
+                Icon tempIcon = Icon.FromHandle(hIcon);
+                Icon icon = (Icon)tempIcon.Clone(); // Clone to avoid disposal issues
+                DestroyIcon(hIcon); // Clean up the handle
+                return icon;
             }
         }
         

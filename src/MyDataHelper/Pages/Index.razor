@@ -180,9 +180,43 @@
     }
     else
     {
-        <div class="alert alert-info">
-            <h4>Welcome to MyDataHelper!</h4>
-            <p>Get started by <a href="/scan">adding folders to scan</a>.</p>
+        <div class="welcome-container">
+            <div class="text-center">
+                <i class="bi bi-hdd-stack-fill" style="font-size: 5rem; color: #0d6efd;"></i>
+                <h2 class="mt-4">Welcome to MyDataHelper</h2>
+                <p class="lead">A powerful disk space analyzer for Windows</p>
+            </div>
+            
+            <div class="row mt-5">
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="bi bi-speedometer2" style="font-size: 2.5rem; color: #198754;"></i>
+                        <h5 class="mt-3">Fast Scanning</h5>
+                        <p>Multi-threaded scanning engine quickly analyzes your drives and folders</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="bi bi-tree-fill" style="font-size: 2.5rem; color: #ffc107;"></i>
+                        <h5 class="mt-3">Visual Tree View</h5>
+                        <p>Navigate your file system with an intuitive hierarchical view</p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="feature-card">
+                        <i class="bi bi-files" style="font-size: 2.5rem; color: #dc3545;"></i>
+                        <h5 class="mt-3">Find Duplicates</h5>
+                        <p>Detect and manage duplicate files to free up valuable disk space</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center mt-5">
+                <a href="/scan" class="btn btn-primary btn-lg">
+                    <i class="bi bi-folder-plus me-2"></i>
+                    Start Your First Scan
+                </a>
+            </div>
         </div>
     }
 </div>
@@ -218,6 +252,24 @@
     .card-header {
         background-color: #f8f9fa;
         border-bottom: 1px solid #dee2e6;
+    }
+    
+    .welcome-container {
+        padding: 40px 20px;
+    }
+    
+    .feature-card {
+        text-align: center;
+        padding: 20px;
+        transition: transform 0.2s;
+    }
+    
+    .feature-card:hover {
+        transform: translateY(-5px);
+    }
+    
+    .feature-card p {
+        color: #6c757d;
     }
 </style>
 
