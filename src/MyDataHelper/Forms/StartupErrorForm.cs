@@ -8,26 +8,26 @@ namespace MyDataHelper.Forms
 {
     public partial class StartupErrorForm : Form
     {
-        private Label titleLabel;
-        private TextBox errorTextBox;
-        private Button viewLogButton;
-        private Button exitButton;
+        private Label titleLabel = null!;
+        private TextBox errorTextBox = null!;
+        private Button viewLogButton = null!;
+        private Button exitButton = null!;
         private string? _exception;
         
         public StartupErrorForm(string message, Exception? exception)
         {
             InitializeComponent();
             
-            titleLabel.Text = message;
+            titleLabel!.Text = message;
             
             if (exception != null)
             {
                 _exception = FormatException(exception);
-                errorTextBox.Text = _exception;
+                errorTextBox!.Text = _exception;
             }
             else
             {
-                errorTextBox.Text = "No additional error information available.";
+                errorTextBox!.Text = "No additional error information available.";
             }
         }
         

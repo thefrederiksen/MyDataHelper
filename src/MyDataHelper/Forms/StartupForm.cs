@@ -1,14 +1,15 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace MyDataHelper.Forms
 {
     public partial class StartupForm : Form
     {
-        private Label statusLabel;
-        private ProgressBar progressBar;
-        private PictureBox logoPictureBox;
+        private Label statusLabel = null!;
+        private ProgressBar progressBar = null!;
+        private PictureBox logoPictureBox = null!;
         
         public StartupForm()
         {

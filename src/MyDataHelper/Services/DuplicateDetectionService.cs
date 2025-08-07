@@ -58,12 +58,12 @@ namespace MyDataHelper.Services
             
             if (options.IncludeExtensions?.Any() == true)
             {
-                query = query.Where(f => options.IncludeExtensions.Contains(f.extension));
+                query = query.Where(f => f.extension != null && options.IncludeExtensions.Contains(f.extension));
             }
             
             if (options.ExcludeExtensions?.Any() == true)
             {
-                query = query.Where(f => !options.ExcludeExtensions.Contains(f.extension));
+                query = query.Where(f => f.extension == null || !options.ExcludeExtensions.Contains(f.extension));
             }
             
             // Group by size first
