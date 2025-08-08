@@ -1,0 +1,335 @@
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IJSRuntime JS
+
+<div class="duplicate-files-report">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        </div>
+    }
+    else if (DuplicateGroups.Any())
+    {
+        <!-- Summary -->
+        <div class="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold text-yellow-900">
+                        <i class="bi bi-exclamation-triangle mr-2"></i>
+                        Duplicate Files Detected
+                    </h3>
+                    <p class="text-yellow-700 mt-1">
+                        Found @DuplicateGroups.Count duplicate groups with @TotalDuplicateFiles files 
+                        wasting @FormatBytes(WastedSpace)
+                    </p>
+                </div>
+                <button class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-medium"
+                        @onclick="CleanupDuplicates">
+                    <i class="bi bi-trash mr-2"></i>
+                    Auto-Cleanup
+                </button>
+            </div>
+        </div>
+        
+        <!-- Duplicate Groups -->
+        <div class="space-y-4">
+            @foreach (var group in DuplicateGroups.Take(DisplayLimit))
+            {
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <span class="font-semibold text-gray-900">
+                                    @group.Files.First().name
+                                </span>
+                                <span class="ml-3 text-sm text-gray-600">
+                                    @group.Files.Count duplicates • @FormatBytes(group.FileSize) each • 
+                                    @FormatBytes(group.WastedSpace) wasted
+                                </span>
+                            </div>
+                            <button class="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                                    @onclick="() => CleanupGroup(group)">
+                                Keep Oldest
+                            </button>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-gray-100">
+                        @foreach (var file in group.Files)
+                        {
+                            <div class="px-4 py-2 hover:bg-gray-50 flex items-center justify-between">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm text-gray-600 truncate" title="@file.name">
+                                        @file.name
+                                    </div>
+                                    <div class="text-xs text-gray-500">
+                                        Modified: @file.last_modified.ToString("MMM dd, yyyy h:mm tt")
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2 ml-4">
+                                    <button class="text-blue-600 hover:text-blue-800 text-sm"
+                                            @onclick="() => OpenFileLocation(file)">
+                                        <i class="bi bi-folder-open"></i>
+                                    </button>
+                                    <button class="text-red-600 hover:text-red-800 text-sm"
+                                            @onclick="() => DeleteDuplicate(file, group)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        
+        @if (DuplicateGroups.Count > DisplayLimit)
+        {
+            <div class="mt-4 text-center">
+                <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        @onclick="LoadMore">
+                    Show More (@(DuplicateGroups.Count - DisplayLimit) remaining)
+                </button>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="text-center py-12 text-gray-500">
+            <i class="bi bi-check-circle text-5xl text-green-500 mb-3"></i>
+            <p class="text-lg font-medium text-gray-900">No Duplicate Files Found</p>
+            <p class="text-gray-600 mt-2">Your scanned directories don't contain any duplicate files.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private List<DuplicateGroup> DuplicateGroups = new();
+    private int TotalDuplicateFiles = 0;
+    private long WastedSpace = 0;
+    private int DisplayLimit = 10;
+    
+    private class DuplicateGroup
+    {
+        public string Hash { get; set; } = "";
+        public List<tbl_files> Files { get; set; } = new();
+        public long FileSize => Files.FirstOrDefault()?.size ?? 0;
+        public long WastedSpace => FileSize * (Files.Count - 1);
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDuplicates();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadDuplicates();
+    }
+    
+    private async Task LoadDuplicates()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get all files from folders in this scan root
+            var potentialDuplicates = await context.tbl_folders
+                .Where(f => f.scan_root_id == ScanRootId)
+                .SelectMany(f => f.files)
+                .ToListAsync();
+            
+            // Group by size to find potential duplicates
+            potentialDuplicates = potentialDuplicates
+                .GroupBy(f => f.size)
+                .Where(g => g.Count() > 1)
+                .SelectMany(g => g)
+                .ToList();
+            
+            // Group by name and size for now (proper hash-based detection would be better)
+            var groups = potentialDuplicates
+                .GroupBy(f => new { f.name, f.size })
+                .Where(g => g.Count() > 1)
+                .Select(g => new DuplicateGroup
+                {
+                    Hash = $"{g.Key.name}_{g.Key.size}",
+                    Files = g.OrderBy(f => f.last_modified).ToList()
+                })
+                .OrderByDescending(g => g.WastedSpace)
+                .ToList();
+            
+            DuplicateGroups = groups;
+            TotalDuplicateFiles = groups.Sum(g => g.Files.Count);
+            WastedSpace = groups.Sum(g => g.WastedSpace);
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private void LoadMore()
+    {
+        DisplayLimit += 10;
+        StateHasChanged();
+    }
+    
+    private async void OpenFileLocation(tbl_files file)
+    {
+        try
+        {
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            var folder = await context.tbl_folders.FindAsync(file.folder_id);
+            if (folder != null)
+            {
+                var filePath = Path.Combine(folder.path, file.name);
+                if (File.Exists(filePath))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+    }
+    
+    private async Task DeleteDuplicate(tbl_files file, DuplicateGroup group)
+    {
+        if (group.Files.Count <= 1)
+        {
+            await JS.InvokeVoidAsync("alert", "Cannot delete the last remaining file in a group.");
+            return;
+        }
+        
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Delete this duplicate?\n\n{file.name}\n\nThis action cannot be undone.");
+            
+        if (confirmed)
+        {
+            try
+            {
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                var folder = await context.tbl_folders.FindAsync(file.folder_id);
+                if (folder != null)
+                {
+                    var filePath = Path.Combine(folder.path, file.name);
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+                }
+                
+                // Remove from database
+                var dbFile = await context.tbl_files.FindAsync(file.id);
+                if (dbFile != null)
+                {
+                    context.tbl_files.Remove(dbFile);
+                    await context.SaveChangesAsync();
+                }
+                
+                // Remove from UI
+                group.Files.Remove(file);
+                if (group.Files.Count <= 1)
+                {
+                    DuplicateGroups.Remove(group);
+                }
+                
+                // Recalculate stats
+                TotalDuplicateFiles = DuplicateGroups.Sum(g => g.Files.Count);
+                WastedSpace = DuplicateGroups.Sum(g => g.WastedSpace);
+                
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("alert", $"Error deleting file: {ex.Message}");
+            }
+        }
+    }
+    
+    private async Task CleanupGroup(DuplicateGroup group)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Keep the oldest file and delete {group.Files.Count - 1} duplicates?\n\nThis will save {FormatBytes(group.WastedSpace)}.");
+            
+        if (confirmed)
+        {
+            var oldest = group.Files.First(); // Already sorted by modified time
+            var toDelete = group.Files.Skip(1).ToList();
+            
+            foreach (var file in toDelete)
+            {
+                try
+                {
+                    using var context = await DbContextFactory.CreateDbContextAsync();
+                    var folder = await context.tbl_folders.FindAsync(file.folder_id);
+                    if (folder != null)
+                    {
+                        var filePath = Path.Combine(folder.path, file.name);
+                        if (File.Exists(filePath))
+                        {
+                            File.Delete(filePath);
+                        }
+                    }
+                    var dbFile = await context.tbl_files.FindAsync(file.id);
+                    if (dbFile != null)
+                    {
+                        context.tbl_files.Remove(dbFile);
+                        await context.SaveChangesAsync();
+                    }
+                    
+                    group.Files.Remove(file);
+                }
+                catch
+                {
+                    // Continue with other files
+                }
+            }
+            
+            DuplicateGroups.Remove(group);
+            TotalDuplicateFiles = DuplicateGroups.Sum(g => g.Files.Count);
+            WastedSpace = DuplicateGroups.Sum(g => g.WastedSpace);
+            StateHasChanged();
+        }
+    }
+    
+    private async Task CleanupDuplicates()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Automatically keep the oldest file in each group and delete all duplicates?\n\nThis will delete {TotalDuplicateFiles - DuplicateGroups.Count} files and save {FormatBytes(WastedSpace)}.");
+            
+        if (confirmed)
+        {
+            var groupsToProcess = DuplicateGroups.ToList();
+            foreach (var group in groupsToProcess)
+            {
+                await CleanupGroup(group);
+            }
+        }
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

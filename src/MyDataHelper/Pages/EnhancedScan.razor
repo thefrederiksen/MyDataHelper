@@ -1,0 +1,602 @@
+@page "/enhanced-scan"
+@using Microsoft.EntityFrameworkCore
+@using System.IO
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IParallelDiskScanService ParallelScanService
+@inject IDriveDetectionService DriveDetection
+@inject IFolderDialogService FolderDialog
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>MyDataHelper - Enhanced Disk Scan</PageTitle>
+
+<div class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900 flex items-center">
+                        <i class="bi bi-radar mr-3 text-blue-600"></i>
+                        Enhanced Disk Scan
+                    </h1>
+                    <p class="text-lg text-gray-600 mt-2">
+                        Multi-threaded scanning with real-time progress visualization and lightning-fast performance
+                    </p>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm text-gray-500">Powered by</div>
+                    <div class="text-lg font-semibold text-blue-600">MyDataHelper</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        @if (IsLoading)
+        {
+            <div class="flex justify-center items-center py-20">
+                <div class="text-center">
+                    <div class="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+                    <p class="text-xl text-gray-600">Initializing scan engine...</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- Scan Status & Control Panel -->
+            <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+                @if (ParallelScanService.IsScanning)
+                {
+                    <!-- Scanning Active Header -->
+                    <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-4">
+                                <div class="p-3 bg-white bg-opacity-20 rounded-full">
+                                    <div class="animate-spin rounded-full h-8 w-8 border-3 border-white border-t-transparent"></div>
+                                </div>
+                                <div>
+                                    <h2 class="text-2xl font-bold mb-1">Disk Scan in Progress</h2>
+                                    @if (ParallelScanService.CurrentProgress != null)
+                                    {
+                                        var progress = ParallelScanService.CurrentProgress;
+                                        var currentPhase = GetCurrentPhase(progress);
+                                        <div class="flex items-center text-blue-100">
+                                            @if (currentPhase == "Discovery")
+                                            {
+                                                <i class="bi bi-search mr-2 animate-pulse text-yellow-300"></i>
+                                                <span class="text-base">Phase 1: Discovering directories...</span>
+                                            }
+                                            else if (currentPhase == "Scanning")
+                                            {
+                                                <i class="bi bi-arrow-repeat mr-2 animate-spin text-green-300"></i>
+                                                <span class="text-base">Phase 2: Analyzing files (@progress.ProcessedFiles.ToString("N0") processed)</span>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-check-circle mr-2 text-green-300"></i>
+                                                <span class="text-base">Phase 3: Finalizing results...</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button class="px-4 py-2 bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-800 transition-colors duration-200" @onclick="ViewProgress">
+                                    <i class="bi bi-graph-up mr-1"></i>
+                                    Progress
+                                </button>
+                                <button class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors duration-200" @onclick="CancelScan">
+                                    <i class="bi bi-stop-fill mr-1"></i>
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Progress Statistics Dashboard -->
+                    @if (ParallelScanService.CurrentProgress != null)
+                    {
+                        var progress = ParallelScanService.CurrentProgress;
+                        <div class="p-8 bg-gray-50">
+                            <!-- Overall Progress Bar -->
+                            <div class="mb-8">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-gray-900">Overall Progress</h3>
+                                    <div class="text-right">
+                                        <div class="text-2xl font-bold text-blue-600">@progress.CompletionPercentage.ToString("F1")%</div>
+                                        <div class="text-sm text-gray-500">@progress.CompletedDirectories.ToString("N0") of @progress.TotalDirectories.ToString("N0") directories</div>
+                                    </div>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                    <div class="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500" style="width: @progress.CompletionPercentage%"></div>
+                                </div>
+                                @if (progress.EstimatedTimeRemaining != null)
+                                {
+                                    <div class="mt-2 text-sm text-gray-600 text-center">
+                                        Estimated time remaining: <span class="font-medium">@FormatTimeSpan(progress.EstimatedTimeRemaining.Value)</span>
+                                    </div>
+                                }
+                            </div>
+                            
+                            <!-- Statistics Grid -->
+                            <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                                <!-- Files Scanned -->
+                                <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="p-2 bg-blue-100 rounded-lg">
+                                            <i class="bi bi-file-earmark-text text-2xl text-blue-600"></i>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-gray-900">@progress.ProcessedFiles.ToString("N0")</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm font-medium text-gray-600">Files Scanned</div>
+                                    <div class="text-xs text-gray-500 mt-1">@progress.FilesPerSecond.ToString("N0") files/sec</div>
+                                </div>
+                                
+                                <!-- Total Size -->
+                                <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="p-2 bg-green-100 rounded-lg">
+                                            <i class="bi bi-server text-2xl text-green-600"></i>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-gray-900">@FormatBytes(progress.TotalSizeBytes)</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm font-medium text-gray-600">Total Size</div>
+                                    <div class="text-xs text-gray-500 mt-1">Data processed</div>
+                                </div>
+                                
+                                <!-- Directories Status -->
+                                <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="p-2 bg-purple-100 rounded-lg">
+                                            <i class="bi bi-folder-fill text-2xl text-purple-600"></i>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-gray-900">@progress.ScanningDirectories</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm font-medium text-gray-600">Currently Scanning</div>
+                                    <div class="text-xs text-gray-500 mt-1">@progress.QueuedDirectories.ToString("N0") queued</div>
+                                </div>
+                                
+                                <!-- Elapsed Time -->
+                                <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="p-2 bg-orange-100 rounded-lg">
+                                            <i class="bi bi-clock text-2xl text-orange-600"></i>
+                                        </div>
+                                        <div class="text-right">
+                                            <div class="text-2xl font-bold text-gray-900">@FormatTimeSpan(progress.ElapsedTime)</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-sm font-medium text-gray-600">Elapsed Time</div>
+                                    @if (progress.ErrorDirectories > 0)
+                                    {
+                                        <div class="text-xs text-red-500 mt-1">@progress.ErrorDirectories errors</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-xs text-green-500 mt-1">No errors</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <!-- Ready to Scan State -->
+                    <div class="bg-gradient-to-r from-green-600 to-emerald-600 p-8 text-white">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-6">
+                                <div class="p-4 bg-white bg-opacity-20 rounded-full">
+                                    <i class="bi bi-radar text-5xl text-yellow-300"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-3xl font-bold mb-2">Ready to Scan</h2>
+                                    <div class="text-green-100 text-lg space-y-1">
+                                        <div class="flex items-center">
+                                            <i class="bi bi-check-circle mr-2"></i>
+                                            Enhanced scan engine initialized
+                                        </div>
+                                        <div class="flex items-center">
+                                            <i class="bi bi-arrow-down mr-2"></i>
+                                            Select drives or folders below, then click START
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <button class="px-12 py-6 bg-white text-green-600 rounded-xl font-bold text-2xl shadow-xl hover:shadow-2xl transform transition hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" 
+                                        @onclick="StartQuickScan"
+                                        disabled="@(!SelectedDrives.Any() && !CustomFolders.Any())">
+                                    <i class="bi bi-radar mr-3 text-3xl"></i>
+                                    START DISK SCAN
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Drive Selection -->
+            <div class="bg-white rounded-xl shadow-lg border border-gray-200">
+                <div class="p-6 border-b border-gray-200">
+                    <h2 class="text-xl font-semibold text-gray-900 flex items-center">
+                        <i class="bi bi-server mr-2"></i>
+                        Select Drives to Scan
+                    </h2>
+                    <p class="text-gray-600 mt-1">Choose drives to scan with lightning-fast multi-threaded performance</p>
+                </div>
+                <div class="p-6">
+                    <DriveSelector OnDrivesSelected="OnDrivesSelected" OnScanStarted="OnScanStarted" />
+                </div>
+            </div>
+
+            <!-- Custom Folders -->
+            <div class="bg-white rounded-xl shadow-lg border border-gray-200">
+                <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900 flex items-center">
+                            <i class="bi bi-folder-plus mr-2"></i>
+                            Custom Scan Folders
+                        </h2>
+                        <p class="text-gray-600 mt-1">Add specific folders for targeted scanning</p>
+                    </div>
+                    <button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors duration-200" @onclick="AddScanRoot">
+                        <i class="bi bi-plus-circle mr-2"></i>
+                        Add Folder
+                    </button>
+                </div>
+                <div class="p-6">
+                    @if (CustomFolders.Any())
+                    {
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            @foreach (var root in CustomFolders)
+                            {
+                                <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 hover:border-blue-300 hover:bg-blue-50 transition-all duration-200">
+                                    <div class="flex items-start justify-between mb-4">
+                                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                                            <div class="p-2 bg-yellow-100 rounded-lg">
+                                                <i class="bi bi-folder-fill text-yellow-600 text-xl"></i>
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <h4 class="font-semibold text-gray-900 truncate">@root.display_name</h4>
+                                                <p class="text-sm text-gray-500 truncate" title="@root.path">@root.path</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-2 gap-4 mb-4">
+                                        <div class="text-center p-3 bg-white rounded-lg">
+                                            <div class="text-lg font-bold text-blue-600">@(root.last_scan_file_count?.ToString("N0") ?? "0")</div>
+                                            <div class="text-xs text-gray-500">Files</div>
+                                        </div>
+                                        <div class="text-center p-3 bg-white rounded-lg">
+                                            <div class="text-lg font-bold text-green-600">@FormatBytes(root.last_scan_size ?? 0)</div>
+                                            <div class="text-xs text-gray-500">Size</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-center mb-4">
+                                        <div class="text-sm text-gray-500">
+                                            @if (root.last_scan_time.HasValue)
+                                            {
+                                                <span>Last scanned: @root.last_scan_time.Value.ToString("MMM dd, yyyy")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-orange-600 font-medium">Never scanned</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex space-x-2">
+                                        <button class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-200" 
+                                                @onclick="() => StartEnhancedScan(root.id)"
+                                                disabled="@ParallelScanService.IsScanning">
+                                            <i class="bi bi-radar mr-1"></i>
+                                            Scan This Folder
+                                        </button>
+                                        <button class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200" 
+                                                @onclick="() => RemoveScanRoot(root.id)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-16">
+                            <div class="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-6">
+                                <i class="bi bi-folder-x text-4xl text-gray-400"></i>
+                            </div>
+                            <h4 class="text-xl font-medium text-gray-900 mb-2">No Custom Folders</h4>
+                            <p class="text-gray-600 mb-6 max-w-md mx-auto">Add specific folders to scan instead of entire drives. Perfect for targeted analysis of important directories.</p>
+                            <button class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium inline-flex items-center transition-colors duration-200" @onclick="AddScanRoot">
+                                <i class="bi bi-plus-circle mr-2"></i>
+                                Add Your First Folder
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Features Section -->
+            <div class="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
+                    <h3 class="text-2xl font-bold mb-2 flex items-center">
+                        <i class="bi bi-stars mr-3"></i>
+                        Why Choose Enhanced Disk Scan?
+                    </h3>
+                    <p class="text-blue-100">Advanced scanning technology for professional disk analysis</p>
+                </div>
+                <div class="p-8">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="bi bi-cpu text-3xl text-blue-600"></i>
+                            </div>
+                            <h4 class="text-lg font-semibold text-gray-900 mb-2">Multi-threaded Processing</h4>
+                            <p class="text-gray-600">Up to 8 parallel workers scan your drives simultaneously for maximum speed</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="bi bi-graph-up text-3xl text-green-600"></i>
+                            </div>
+                            <h4 class="text-lg font-semibold text-gray-900 mb-2">Real-time Progress</h4>
+                            <p class="text-gray-600">Live directory tree visualization shows exactly what's being scanned</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="bi bi-speedometer text-3xl text-purple-600"></i>
+                            </div>
+                            <h4 class="text-lg font-semibold text-gray-900 mb-2">Performance Metrics</h4>
+                            <p class="text-gray-600">Detailed statistics including files/sec, ETA, and completion tracking</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool IsLoading = true;
+    private List<tbl_scan_roots> AllScanRoots = new();
+    private List<tbl_scan_roots> CustomFolders => AllScanRoots.Where(sr => !sr.path.EndsWith("\\")).ToList();
+    private List<string> SelectedDrives = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        ParallelScanService.ScanProgressChanged += OnScanProgressChanged;
+        ParallelScanService.ScanCompleted += OnScanCompleted;
+    }
+    
+    private async Task LoadData()
+    {
+        await LoadScanRoots();
+    }
+    
+    private async Task LoadScanRoots()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            AllScanRoots = await context.tbl_scan_roots.ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            // Silent error handling - log but don't show popup
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private async Task AddScanRoot()
+    {
+        try
+        {
+            var selectedPath = FolderDialog.ShowFolderDialog("Select folder for enhanced scanning");
+            if (!string.IsNullOrEmpty(selectedPath))
+            {
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                
+                // Check if already exists
+                var existing = await context.tbl_scan_roots
+                    .FirstOrDefaultAsync(sr => sr.path == selectedPath);
+                    
+                if (existing != null)
+                {
+                    // Path already exists - silently return
+                    return;
+                }
+                
+                var scanRoot = new tbl_scan_roots
+                {
+                    path = selectedPath,
+                    display_name = Path.GetFileName(selectedPath) ?? selectedPath,
+                    is_active = true,
+                    include_subdirectories = true,
+                    follow_symlinks = false
+                };
+                
+                context.tbl_scan_roots.Add(scanRoot);
+                await context.SaveChangesAsync();
+                
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Silent error handling
+        }
+    }
+    
+    private async Task RemoveScanRoot(int scanRootId)
+    {
+        try
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to remove this scan root? All associated data will be deleted.");
+            if (confirmed)
+            {
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                var scanRoot = await context.tbl_scan_roots.FindAsync(scanRootId);
+                if (scanRoot != null)
+                {
+                    context.tbl_scan_roots.Remove(scanRoot);
+                    await context.SaveChangesAsync();
+                    await LoadData();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Silent error handling
+        }
+    }
+    
+    private void RefreshDrives()
+    {
+        StateHasChanged();
+    }
+    
+    private void OnDrivesSelected(List<string> drives)
+    {
+        SelectedDrives = drives;
+        StateHasChanged();
+    }
+    
+    private async Task OnScanStarted()
+    {
+        await LoadData();
+        StateHasChanged();
+    }
+    
+    private async Task StartEnhancedScan(int scanRootId)
+    {
+        try
+        {
+            await ParallelScanService.StartEnhancedScanAsync(scanRootId);
+            Navigation.NavigateTo("/scan-progress");
+        }
+        catch (Exception ex)
+        {
+            // Silent error handling
+        }
+    }
+    
+    private void CancelScan()
+    {
+        ParallelScanService.CancelScan();
+    }
+    
+    private void ViewProgress()
+    {
+        Navigation.NavigateTo("/scan-progress");
+    }
+    
+    private async Task StartQuickScan()
+    {
+        try
+        {
+            // Start enhanced scan with selected drives or folders
+            if (SelectedDrives.Any())
+            {
+                // Scan selected drives
+                await ParallelScanService.StartEnhancedDriveScanAsync(SelectedDrives.First());
+            }
+            else if (CustomFolders.Any())
+            {
+                // Scan first active custom folder
+                var activeFolder = CustomFolders.FirstOrDefault(f => f.is_active);
+                if (activeFolder != null)
+                {
+                    await ParallelScanService.StartEnhancedScanAsync(activeFolder.id);
+                }
+            }
+            
+            // Navigate to progress page
+            Navigation.NavigateTo("/scan-progress");
+        }
+        catch (Exception ex)
+        {
+            // Silent error handling
+        }
+    }
+    
+    private void OnScanProgressChanged(object? sender, MyDataHelper.Models.EnhancedScanProgressEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnScanCompleted(object? sender, MyDataHelper.Models.EnhancedScanCompletedEventArgs e)
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await LoadData();
+        });
+    }
+    
+    private string GetCurrentPhase(EnhancedScanProgress progress)
+    {
+        if (progress.TotalDirectories == 0 || progress.CompletedDirectories == 0)
+            return "Discovery";
+        else if (progress.CompletedDirectories < progress.TotalDirectories)
+            return "Scanning";
+        else
+            return "Finalizing";
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+    
+    private string FormatTimeSpan(TimeSpan timeSpan)
+    {
+        if (timeSpan.TotalDays >= 1)
+        {
+            return $"{(int)timeSpan.TotalDays}d {timeSpan.Hours}h {timeSpan.Minutes}m";
+        }
+        else if (timeSpan.TotalHours >= 1)
+        {
+            return $"{timeSpan.Hours}h {timeSpan.Minutes}m {timeSpan.Seconds}s";
+        }
+        else if (timeSpan.TotalMinutes >= 1)
+        {
+            return $"{timeSpan.Minutes}m {timeSpan.Seconds}s";
+        }
+        else
+        {
+            return $"{timeSpan.Seconds}s";
+        }
+    }
+    
+    public void Dispose()
+    {
+        ParallelScanService.ScanProgressChanged -= OnScanProgressChanged;
+        ParallelScanService.ScanCompleted -= OnScanCompleted;
+    }
+}

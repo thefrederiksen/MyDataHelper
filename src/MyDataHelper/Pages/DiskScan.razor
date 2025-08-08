@@ -3,6 +3,7 @@
 @using System.IO
 @inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
 @inject IDiskScanService ScanService
+@inject IParallelDiskScanService ParallelScanService
 @inject IDriveDetectionService DriveDetection
 @inject IFolderDialogService FolderDialog
 @inject IJSRuntime JS
@@ -13,9 +14,12 @@
 <div class="p-6">
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900 flex items-center">
-            <i class="bi bi-hdd-stack mr-2"></i>
-            Disk Scan Management
+            <i class="bi bi-clock-history mr-2"></i>
+            Scan History & Management
         </h1>
+        <p class="text-gray-600 mt-2">
+            View scan history and manage scanning operations. For new scans, use <a href="/enhanced-scan" class="text-blue-600 hover:text-blue-800">Disk Scan</a>.
+        </p>
     </div>
 
     @if (IsLoading)
@@ -26,27 +30,28 @@
     }
     else
     {
-        @if (ScanService.IsScanning)
+        @if (ParallelScanService.IsScanning)
         {
-            <!-- Scan Progress Banner -->
+            <!-- Enhanced Scan Progress Banner -->
             <div class="mb-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center flex-1">
                         <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent mr-3"></div>
                         <div>
-                            <span class="font-semibold text-blue-900">Scan in Progress</span>
-                            @if (ScanService.CurrentProgress != null)
-                            {
-                                <span class="ml-4 text-blue-700">Processing: @Path.GetFileName(ScanService.CurrentProgress.CurrentPath)</span>
-                                <span class="ml-4 text-blue-700">Files: @ScanService.CurrentProgress.ProcessedFiles.ToString("N0")</span>
-                                <span class="ml-4 text-blue-700">Folders: @ScanService.CurrentProgress.ProcessedFolders.ToString("N0")</span>
-                            }
+                            <span class="font-semibold text-blue-900">Disk Scan in Progress</span>
+                            <span class="ml-4 text-blue-700">Multi-threaded analysis running...</span>
                         </div>
                     </div>
-                    <button class="px-3 py-1 bg-orange-500 text-white rounded-md hover:bg-orange-600 text-sm font-medium" @onclick="CancelScan">
-                        <i class="bi bi-stop-circle mr-1"></i>
-                        Cancel
-                    </button>
+                    <div class="flex space-x-2">
+                        <button class="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium" @onclick="ViewProgress">
+                            <i class="bi bi-graph-up mr-1"></i>
+                            View Progress
+                        </button>
+                        <button class="px-3 py-1.5 bg-orange-500 text-white rounded-md hover:bg-orange-600 text-sm font-medium" @onclick="CancelScan">
+                            <i class="bi bi-stop-circle mr-1"></i>
+                            Cancel
+                        </button>
+                    </div>
                 </div>
             </div>
         }
@@ -54,143 +59,25 @@
         <!-- Tab Navigation -->
         <div class="border-b border-gray-200 mb-6">
             <nav class="-mb-px flex space-x-8">
+                <button @onclick="@(() => ActiveTab = "history")"
+                        class="@GetTabClass("history") py-2 px-1 border-b-2 font-medium text-sm">
+                    <i class="bi bi-clock-history mr-2"></i>
+                    Scan History
+                </button>
                 <button @onclick="@(() => ActiveTab = "drives")"
                         class="@GetTabClass("drives") py-2 px-1 border-b-2 font-medium text-sm">
-                    <i class="bi bi-hdd mr-2"></i>
-                    Drives
+                    <i class="bi bi-server mr-2"></i>
+                    Drive Scan
                 </button>
                 <button @onclick="@(() => ActiveTab = "folders")"
                         class="@GetTabClass("folders") py-2 px-1 border-b-2 font-medium text-sm">
                     <i class="bi bi-folder mr-2"></i>
                     Custom Folders
                 </button>
-                <button @onclick="@(() => ActiveTab = "history")"
-                        class="@GetTabClass("history") py-2 px-1 border-b-2 font-medium text-sm">
-                    <i class="bi bi-clock-history mr-2"></i>
-                    Scan History
-                </button>
             </nav>
         </div>
         
-        @if (ActiveTab == "drives")
-        {
-            <!-- Drives Tab -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div class="p-6 border-b border-gray-200 flex justify-between items-center">
-                    <h2 class="text-lg font-semibold text-gray-900 flex items-center">
-                        <i class="bi bi-hdd-stack mr-2"></i>
-                        Available Drives
-                    </h2>
-                    <button class="px-3 py-1.5 text-sm font-medium border border-primary-600 text-primary-600 rounded-md hover:bg-primary-50" @onclick="RefreshDrives">
-                        <i class="bi bi-arrow-clockwise mr-1"></i>
-                        Refresh
-                    </button>
-                </div>
-                <div class="p-6">
-                    <DriveSelector OnDrivesSelected="OnDrivesSelected" OnScanStarted="OnScanStarted" />
-                </div>
-            </div>
-        }
-        else if (ActiveTab == "folders")
-        {
-            <!-- Custom Folders Tab -->
-            <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div class="p-6 border-b border-gray-200 flex justify-between items-center">
-                    <h2 class="text-lg font-semibold text-gray-900 flex items-center">
-                        <i class="bi bi-folder-plus mr-2"></i>
-                        Custom Scan Folders
-                    </h2>
-                    <button class="px-3 py-1.5 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700" @onclick="AddScanRoot">
-                        <i class="bi bi-plus-circle mr-1"></i>
-                        Add Folder
-                    </button>
-                </div>
-                <div class="p-6">
-                    @if (CustomFolders.Any())
-                    {
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead>
-                                    <tr>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folder Path</th>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Scanned</th>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Files</th>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                    @foreach (var root in CustomFolders)
-                                    {
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-3 py-4">
-                                                <div class="flex items-start">
-                                                    <i class="bi bi-folder-fill text-yellow-500 mr-2 mt-0.5"></i>
-                                                    <div>
-                                                        <div class="font-medium text-gray-900">@root.display_name</div>
-                                                        <div class="text-sm text-gray-500">@root.path</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-3 py-4 text-sm text-gray-900">
-                                                @if (root.last_scan_time.HasValue)
-                                                {
-                                                    <span>@root.last_scan_time.Value.ToString("g")</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="text-gray-500">Never</span>
-                                                }
-                                            </td>
-                                            <td class="px-3 py-4 text-sm text-gray-900">@FormatBytes(root.last_scan_size ?? 0)</td>
-                                            <td class="px-3 py-4 text-sm text-gray-900">@(root.last_scan_file_count?.ToString("N0") ?? "0")</td>
-                                            <td class="px-3 py-4">
-                                                <label class="relative inline-flex items-center cursor-pointer">
-                                                    <input type="checkbox" class="sr-only peer" 
-                                                           @bind="root.is_active" 
-                                                           @bind:after="() => UpdateScanRoot(root)" />
-                                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                                    <span class="ml-2 text-sm text-gray-900">
-                                                        @(root.is_active ? "Active" : "Inactive")
-                                                    </span>
-                                                </label>
-                                            </td>
-                                            <td class="px-3 py-4">
-                                                <div class="flex space-x-2">
-                                                    <button class="px-2 py-1 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed" 
-                                                            @onclick="() => StartScan(root.id)"
-                                                            disabled="@ScanService.IsScanning">
-                                                        <i class="bi bi-play-fill"></i>
-                                                        Scan
-                                                    </button>
-                                                    <button class="px-2 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700" 
-                                                            @onclick="() => RemoveScanRoot(root.id)">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="text-center py-12">
-                            <i class="bi bi-folder-x text-6xl text-gray-400"></i>
-                            <p class="mt-3 text-gray-500">No custom folders configured.</p>
-                            <button class="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium" @onclick="AddScanRoot">
-                                <i class="bi bi-plus-circle mr-2"></i>
-                                Add Your First Folder
-                            </button>
-                        </div>
-                    }
-                </div>
-            </div>
-        }
-        else if (ActiveTab == "history")
+        @if (ActiveTab == "history")
         {
             <!-- Scan History Tab -->
             <div class="bg-white rounded-lg shadow-sm border border-gray-200">
@@ -263,6 +150,165 @@
                 </div>
             </div>
         }
+        else if (ActiveTab == "drives")
+        {
+            <!-- Drive Selection Tab - Now focused on drives only -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                <div class="p-6 border-b border-gray-200">
+                    <h2 class="text-lg font-semibold text-gray-900 flex items-center">
+                        <i class="bi bi-hdd-stack mr-2"></i>
+                        Drive Scanning
+                    </h2>
+                    <p class="text-sm text-gray-600 mt-1">
+                        Select drives to scan with our enhanced multi-threaded disk scanner
+                    </p>
+                </div>
+                <div class="p-6">
+                    <DriveSelector OnDrivesSelected="OnDrivesSelected" OnScanStarted="OnScanStarted" />
+                </div>
+            </div>
+        }
+        else if (ActiveTab == "folders")
+        {
+            <!-- Custom Folders Tab -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+                <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900 flex items-center">
+                            <i class="bi bi-folder-plus mr-2"></i>
+                            Custom Scan Folders
+                        </h2>
+                        <p class="text-sm text-gray-600 mt-1">
+                            Manage and scan custom folders with enhanced disk scanning
+                        </p>
+                    </div>
+                    <button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium inline-flex items-center shadow-md transition-colors duration-200" @onclick="AddScanRoot">
+                        <i class="bi bi-plus-circle mr-2"></i>
+                        Add Folder
+                    </button>
+                </div>
+                <div class="p-6">
+                    @if (CustomFolders.Any())
+                    {
+                        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                            @foreach (var root in CustomFolders)
+                            {
+                                <div class="bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-all duration-200 @(root.is_active ? "ring-2 ring-blue-200 border-blue-300" : "")">
+                                    <!-- Folder Header -->
+                                    <div class="flex items-start justify-between mb-4">
+                                        <div class="flex items-center space-x-3 min-w-0 flex-1">
+                                            <div class="p-2 bg-yellow-100 rounded-lg flex-shrink-0">
+                                                <i class="bi bi-folder-fill text-yellow-600 text-xl"></i>
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <h3 class="font-semibold text-gray-900 truncate" title="@root.display_name">@root.display_name</h3>
+                                                <p class="text-sm text-gray-500 truncate" title="@root.path">@root.path</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center ml-3">
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" class="sr-only peer" 
+                                                       @bind="root.is_active" 
+                                                       @bind:after="() => UpdateScanRoot(root)" />
+                                                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Status Badge -->
+                                    @if (root.is_active)
+                                    {
+                                        <div class="mb-3">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                <i class="bi bi-check-circle mr-1"></i>
+                                                Active
+                                            </span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="mb-3">
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                                <i class="bi bi-pause-circle mr-1"></i>
+                                                Inactive
+                                            </span>
+                                        </div>
+                                    }
+
+                                    <!-- Stats Grid -->
+                                    <div class="grid grid-cols-2 gap-3 mb-4">
+                                        <div class="text-center p-3 bg-blue-50 rounded-lg">
+                                            <div class="text-lg font-bold text-blue-600">@FormatBytes(root.last_scan_size ?? 0)</div>
+                                            <div class="text-xs text-blue-500">Total Size</div>
+                                        </div>
+                                        <div class="text-center p-3 bg-green-50 rounded-lg">
+                                            <div class="text-lg font-bold text-green-600">@(root.last_scan_file_count?.ToString("N0") ?? "0")</div>
+                                            <div class="text-xs text-green-500">Files</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Last Scan Info -->
+                                    <div class="mb-4 p-3 @(root.last_scan_time.HasValue ? "bg-gray-50" : "bg-orange-50") rounded-lg">
+                                        <div class="text-xs @(root.last_scan_time.HasValue ? "text-gray-500" : "text-orange-600") mb-1">Last Scanned</div>
+                                        <div class="text-sm font-medium @(root.last_scan_time.HasValue ? "text-gray-900" : "text-orange-700")">
+                                            @if (root.last_scan_time.HasValue)
+                                            {
+                                                <span>@root.last_scan_time.Value.ToString("MMM dd, yyyy 'at' h:mm tt")</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Never scanned</span>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Buttons -->
+                                    <div class="flex space-x-2">
+                                        <button class="flex-1 px-3 py-2 @(ParallelScanService.IsScanning ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700") text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors duration-200" 
+                                                @onclick="() => StartEnhancedScan(root.id)"
+                                                disabled="@ParallelScanService.IsScanning">
+                                            @if (ParallelScanService.IsScanning)
+                                            {
+                                                <div class="flex items-center justify-center">
+                                                    <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                                                    <span>Scanning...</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="flex items-center justify-center">
+                                                    <i class="bi bi-lightning-fill mr-1"></i>
+                                                    <span>Disk Scan</span>
+                                                </div>
+                                            }
+                                        </button>
+                                        <button class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200" 
+                                                @onclick="() => RemoveScanRoot(root.id)"
+                                                title="Remove folder">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-16">
+                            <div class="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                <i class="bi bi-folder-x text-4xl text-gray-400"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-900 mb-2">No custom folders configured</h3>
+                            <p class="text-gray-500 mb-6 max-w-sm mx-auto">Add folders to scan and analyze your disk space usage with our enhanced multi-threaded scanning engine.</p>
+                            <button class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium inline-flex items-center shadow-md transition-colors duration-200" @onclick="AddScanRoot">
+                                <i class="bi bi-plus-circle mr-2"></i>
+                                Add Your First Folder
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
         
         <!-- Quick Actions Bar -->
         <div class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -271,18 +317,18 @@
                     Quick Actions:
                 </div>
                 <div class="flex space-x-3">
-                    <button class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center" 
-                            @onclick="StartFullScan" 
-                            disabled="@(ScanService.IsScanning || !AllScanRoots.Any(sr => sr.is_active))">
-                        @if (ScanService.IsScanning)
+                    <button class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center shadow-md" 
+                            @onclick="StartEnhancedFullScan" 
+                            disabled="@(ParallelScanService.IsScanning || !AllScanRoots.Any(sr => sr.is_active))">
+                        @if (ParallelScanService.IsScanning)
                         {
-                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
-                            <span>Scanning...</span>
+                            <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
+                            <span>Disk Scanning...</span>
                         }
                         else
                         {
-                            <i class="bi bi-play-fill mr-2"></i>
-                            <span>Scan All Active (@AllScanRoots.Count(sr => sr.is_active))</span>
+                            <i class="bi bi-lightning-fill mr-2 text-lg"></i>
+                            <span>Start Disk Scan All (@AllScanRoots.Count(sr => sr.is_active))</span>
                         }
                     </button>
                     <button class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 font-medium inline-flex items-center" @onclick="NavigateToDashboard">
@@ -297,18 +343,23 @@
 
 @code {
     private bool IsLoading = true;
-    private string ActiveTab = "drives";
+    private string ActiveTab = "history";
     private List<tbl_scan_roots> AllScanRoots = new();
     private List<tbl_scan_roots> CustomFolders => AllScanRoots.Where(sr => !sr.path.EndsWith("\\")).ToList();
     private List<tbl_scan_roots> DriveScanRoots => AllScanRoots.Where(sr => sr.path.EndsWith("\\")).ToList();
     private List<tbl_scan_history> ScanHistory = new();
     private List<string> SelectedDrives = new();
     
+    // Enhanced scanning state only
+    private bool IsAnyScanning => ParallelScanService.IsScanning;
+    
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
-        ScanService.ScanProgressChanged += OnScanProgressChanged;
-        ScanService.ScanCompleted += OnScanCompleted;
+        
+        // Subscribe to enhanced scan events only
+        ParallelScanService.ScanProgressChanged += OnParallelScanProgressChanged;
+        ParallelScanService.ScanCompleted += OnParallelScanCompleted;
     }
     
     private async Task LoadData()
@@ -450,60 +501,80 @@
         StateHasChanged();
     }
     
-    private async Task StartScan(int scanRootId)
+    private async Task StartEnhancedScan(int scanRootId)
     {
         try
         {
-            await ScanService.StartScanAsync(scanRootId);
+            await ParallelScanService.StartEnhancedScanAsync(scanRootId);
+            Navigation.NavigateTo("/scan-progress");
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Error starting scan: {ex.Message}");
+            // Silent error handling
         }
     }
     
-    private async Task StartFullScan()
+    private async Task StartEnhancedFullScan()
     {
         try
         {
-            await ScanService.StartFullScanAsync();
+            // Start enhanced scanning for all active scan roots
+            var activeScanRoots = AllScanRoots.Where(sr => sr.is_active).ToList();
+            
+            if (!activeScanRoots.Any())
+            {
+                // No active scan roots - silently return
+                return;
+            }
+            
+            // For simplicity, start with the first active scan root
+            // In a full implementation, you might want to scan all of them or let user choose
+            var firstScanRoot = activeScanRoots.First();
+            
+            if (firstScanRoot.path.EndsWith(":\\"))
+            {
+                // It's a drive
+                await ParallelScanService.StartEnhancedDriveScanAsync(firstScanRoot.path);
+            }
+            else
+            {
+                // It's a folder
+                await ParallelScanService.StartEnhancedScanAsync(firstScanRoot.id);
+            }
+            
+            // Navigate to the progress page
+            Navigation.NavigateTo("/scan-progress");
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Error starting full scan: {ex.Message}");
+            await JS.InvokeVoidAsync("alert", $"Error starting enhanced scan: {ex.Message}");
         }
     }
     
     private void CancelScan()
     {
-        ScanService.CancelScan();
+        ParallelScanService.CancelScan();
     }
     
-    private void OnScanProgressChanged(object? sender, ScanProgressEventArgs e)
+    private void ViewProgress()
     {
+        Navigation.NavigateTo("/scan-progress");
+    }
+    
+    
+    private void OnParallelScanProgressChanged(object? sender, MyDataHelper.Models.EnhancedScanProgressEventArgs e)
+    {
+        // Enhanced scan progress is handled on the dedicated progress page
+        // Here we just update the UI state
         InvokeAsync(StateHasChanged);
     }
     
-    private void OnScanCompleted(object? sender, ScanCompletedEventArgs e)
+    private void OnParallelScanCompleted(object? sender, MyDataHelper.Models.EnhancedScanCompletedEventArgs e)
     {
         InvokeAsync(async () =>
         {
             StateHasChanged();
             await LoadData(); // Refresh all data
-            
-            if (e.Success)
-            {
-                var message = $"Scan completed successfully!\n" +
-                             $"Files: {e.FilesScanned:N0}\n" +
-                             $"Folders: {e.FoldersScanned:N0}\n" +
-                             $"Total Size: {FormatBytes(e.TotalSize)}\n" +
-                             $"Duration: {e.Duration.TotalSeconds:F1} seconds";
-                await JS.InvokeVoidAsync("alert", message);
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("alert", $"Scan failed: {e.ErrorMessage}");
-            }
         });
     }
     
@@ -533,7 +604,7 @@
     
     public void Dispose()
     {
-        ScanService.ScanProgressChanged -= OnScanProgressChanged;
-        ScanService.ScanCompleted -= OnScanCompleted;
+        ParallelScanService.ScanProgressChanged -= OnParallelScanProgressChanged;
+        ParallelScanService.ScanCompleted -= OnParallelScanCompleted;
     }
 }

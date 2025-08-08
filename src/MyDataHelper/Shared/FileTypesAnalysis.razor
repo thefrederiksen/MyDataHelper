@@ -1,0 +1,237 @@
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+
+<div class="file-types-analysis">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        </div>
+    }
+    else if (FileTypes.Any())
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- File Type Distribution Chart -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Size Distribution by Type</h3>
+                <div class="space-y-3">
+                    @foreach (var type in FileTypes.Take(10))
+                    {
+                        var percentage = TotalSize > 0 ? (type.TotalSize * 100.0 / TotalSize) : 0;
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="font-medium text-gray-700">
+                                    <i class="@GetFileIcon(type.Extension) mr-1"></i>
+                                    @type.Extension
+                                </span>
+                                <span class="text-gray-600">
+                                    @FormatBytes(type.TotalSize) (@percentage.ToString("F1")%)
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="@GetTypeColorClass(type.Extension) h-2 rounded-full transition-all duration-300"
+                                     style="width: @percentage%"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            <!-- File Count Statistics -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">File Count by Type</h3>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200">
+                                <th class="text-left py-2">Extension</th>
+                                <th class="text-right py-2">Count</th>
+                                <th class="text-right py-2">Total Size</th>
+                                <th class="text-right py-2">Avg Size</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var type in FileTypes.Take(15))
+                            {
+                                <tr class="border-b border-gray-100 hover:bg-white">
+                                    <td class="py-2">
+                                        <i class="@GetFileIcon(type.Extension) mr-1"></i>
+                                        @type.Extension
+                                    </td>
+                                    <td class="text-right py-2">@type.FileCount.ToString("N0")</td>
+                                    <td class="text-right py-2">@FormatBytes(type.TotalSize)</td>
+                                    <td class="text-right py-2">@FormatBytes(type.AverageSize)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-600 text-sm">Unique Extensions</span>
+                    <i class="bi bi-file-earmark-code text-blue-500"></i>
+                </div>
+                <div class="text-2xl font-bold text-gray-900">@FileTypes.Count</div>
+            </div>
+            
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-600 text-sm">Largest Type</span>
+                    <i class="bi bi-trophy text-yellow-500"></i>
+                </div>
+                <div class="text-2xl font-bold text-gray-900">@(FileTypes.FirstOrDefault()?.Extension ?? "N/A")</div>
+            </div>
+            
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-600 text-sm">Most Files</span>
+                    <i class="bi bi-stack text-purple-500"></i>
+                </div>
+                <div class="text-2xl font-bold text-gray-900">@(MostCommonType?.Extension ?? "N/A")</div>
+            </div>
+            
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-600 text-sm">System Files</span>
+                    <i class="bi bi-gear text-gray-500"></i>
+                </div>
+                <div class="text-2xl font-bold text-gray-900">@FormatBytes(SystemFilesSize)</div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-12 text-gray-500">
+            <i class="bi bi-inbox text-5xl mb-3"></i>
+            <p>No file type data available</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private List<FileTypeInfo> FileTypes = new();
+    private long TotalSize = 0;
+    private FileTypeInfo? MostCommonType;
+    private long SystemFilesSize = 0;
+    
+    private class FileTypeInfo
+    {
+        public string Extension { get; set; } = "";
+        public int FileCount { get; set; }
+        public long TotalSize { get; set; }
+        public long AverageSize => FileCount > 0 ? TotalSize / FileCount : 0;
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFileTypes();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadFileTypes();
+    }
+    
+    private async Task LoadFileTypes()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get all files from folders in this scan root
+            var allFiles = await context.tbl_folders
+                .Where(f => f.scan_root_id == ScanRootId)
+                .SelectMany(f => f.files)
+                .ToListAsync();
+            
+            var files = allFiles
+                .GroupBy(f => f.extension ?? "no extension")
+                .Select(g => new FileTypeInfo
+                {
+                    Extension = g.Key,
+                    FileCount = g.Count(),
+                    TotalSize = g.Sum(f => f.size)
+                })
+                .OrderByDescending(ft => ft.TotalSize)
+                .ToList();
+            
+            FileTypes = files;
+            TotalSize = files.Sum(ft => ft.TotalSize);
+            MostCommonType = files.OrderByDescending(ft => ft.FileCount).FirstOrDefault();
+            
+            var systemExtensions = new[] { ".exe", ".dll", ".sys", ".ini", ".bat", ".cmd" };
+            SystemFilesSize = files
+                .Where(ft => systemExtensions.Contains(ft.Extension.ToLower()))
+                .Sum(ft => ft.TotalSize);
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private string GetFileIcon(string extension)
+    {
+        extension = extension?.ToLower() ?? "";
+        
+        return extension switch
+        {
+            ".doc" or ".docx" => "bi-file-earmark-word",
+            ".xls" or ".xlsx" => "bi-file-earmark-excel",
+            ".ppt" or ".pptx" => "bi-file-earmark-ppt",
+            ".pdf" => "bi-file-earmark-pdf",
+            ".txt" or ".log" => "bi-file-earmark-text",
+            ".jpg" or ".jpeg" or ".png" or ".gif" => "bi-file-earmark-image",
+            ".mp3" or ".wav" or ".flac" => "bi-file-earmark-music",
+            ".mp4" or ".avi" or ".mov" => "bi-file-earmark-play",
+            ".zip" or ".rar" or ".7z" => "bi-file-earmark-zip",
+            ".exe" or ".msi" => "bi-file-earmark-binary",
+            ".dll" or ".sys" => "bi-gear",
+            ".html" or ".htm" or ".css" or ".js" => "bi-file-earmark-code",
+            _ => "bi-file-earmark"
+        };
+    }
+    
+    private string GetTypeColorClass(string extension)
+    {
+        extension = extension?.ToLower() ?? "";
+        
+        return extension switch
+        {
+            ".doc" or ".docx" or ".pdf" or ".txt" => "bg-green-500",
+            ".jpg" or ".jpeg" or ".png" or ".gif" => "bg-purple-500",
+            ".mp4" or ".avi" or ".mov" => "bg-yellow-500",
+            ".zip" or ".rar" or ".7z" => "bg-red-500",
+            ".exe" or ".dll" or ".sys" => "bg-gray-500",
+            _ => "bg-blue-500"
+        };
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

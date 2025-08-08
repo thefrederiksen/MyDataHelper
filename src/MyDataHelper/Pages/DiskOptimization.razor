@@ -1,0 +1,659 @@
+@page "/disk-optimization"
+@page "/disk-optimization/{ScanRootId:int}"
+@using Microsoft.EntityFrameworkCore
+@using System.Linq
+@using System.IO
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<DiskOptimization> Logger
+
+<PageTitle>Disk Optimization - MyDataHelper</PageTitle>
+
+<div class="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-screen">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-20 w-20 border-4 border-green-500 border-t-transparent mx-auto mb-4"></div>
+                <p class="text-2xl">Analyzing your disk for optimization opportunities...</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Header with Key Metrics -->
+        <div class="bg-gray-900 border-b border-gray-700 shadow-2xl">
+            <div class="max-w-7xl mx-auto px-6 py-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-3xl font-bold flex items-center">
+                            <i class="bi bi-speedometer2 mr-3 text-green-500"></i>
+                            Disk Optimization Center
+                        </h1>
+                        <p class="text-gray-400 mt-1">
+                            @if (CurrentPath != null)
+                            {
+                                <span><i class="bi bi-hdd mr-2"></i>@CurrentPath</span>
+                            }
+                        </p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-4xl font-bold text-white">@FormatBytes(TotalSize)</div>
+                        <div class="text-lg text-gray-400">Total Space Used</div>
+                        @if (PotentialSavings > 0)
+                        {
+                            <div class="text-green-400 font-bold mt-2">
+                                <i class="bi bi-arrow-down-circle"></i>
+                                @FormatBytes(PotentialSavings) can be freed
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 py-8">
+            <!-- Quick Actions Bar -->
+            @if (PotentialSavings > 0)
+            {
+                <div class="bg-gradient-to-r from-green-900 to-green-800 rounded-xl p-6 mb-8 shadow-xl">
+                    <h2 class="text-2xl font-bold mb-4">
+                        <i class="bi bi-lightning-charge-fill text-yellow-400 mr-2"></i>
+                        Quick Space Recovery Actions
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <button class="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-all hover:scale-105"
+                                @onclick="CleanTempFiles">
+                            <div class="text-3xl mb-2">🗑️</div>
+                            <div class="font-bold">Clean Temp Files</div>
+                            <div class="text-green-400 text-lg">@FormatBytes(TempFilesSize)</div>
+                        </button>
+                        
+                        <button class="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-all hover:scale-105"
+                                @onclick="RemoveOldDownloads">
+                            <div class="text-3xl mb-2">📥</div>
+                            <div class="font-bold">Old Downloads</div>
+                            <div class="text-green-400 text-lg">@FormatBytes(OldDownloadsSize)</div>
+                        </button>
+                        
+                        <button class="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-all hover:scale-105"
+                                @onclick="CleanDuplicates">
+                            <div class="text-3xl mb-2">📑</div>
+                            <div class="font-bold">Duplicates</div>
+                            <div class="text-green-400 text-lg">@FormatBytes(DuplicatesSize)</div>
+                        </button>
+                        
+                        <button class="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg transition-all hover:scale-105"
+                                @onclick="CleanCaches">
+                            <div class="text-3xl mb-2">💾</div>
+                            <div class="font-bold">Cache Files</div>
+                            <div class="text-green-400 text-lg">@FormatBytes(CacheSize)</div>
+                        </button>
+                    </div>
+                </div>
+            }
+
+            <!-- Main Analysis Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                <!-- File Type Analysis - The Main Focus -->
+                <div class="lg:col-span-2">
+                    <div class="bg-gray-900 rounded-xl shadow-2xl overflow-hidden">
+                        <div class="bg-gradient-to-r from-blue-600 to-purple-600 p-6">
+                            <h2 class="text-2xl font-bold">
+                                <i class="bi bi-pie-chart-fill mr-2"></i>
+                                Storage by File Type
+                            </h2>
+                            <p class="text-blue-100 mt-1">See what's really eating your disk space</p>
+                        </div>
+                        
+                        <div class="p-6">
+                            @if (FileTypeAnalysis.Any())
+                            {
+                                <div class="space-y-4">
+                                    @foreach (var type in FileTypeAnalysis.Take(15))
+                                    {
+                                        var percentage = (type.TotalSize * 100.0 / TotalSize);
+                                        var icon = GetFileTypeIcon(type.Category);
+                                        var color = GetCategoryColor(type.Category);
+                                        
+                                        <div class="bg-gray-800 rounded-lg p-4 hover:bg-gray-750 transition-all">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <div class="flex items-center">
+                                                    <span class="text-2xl mr-3">@icon</span>
+                                                    <div>
+                                                        <div class="font-bold text-lg">@type.Category</div>
+                                                        <div class="text-sm text-gray-400">
+                                                            @string.Join(", ", type.Extensions.Take(5))
+                                                            @if (type.Extensions.Count > 5)
+                                                            {
+                                                                <span> +@(type.Extensions.Count - 5) more</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="text-right">
+                                                    <div class="text-2xl font-bold">@FormatBytes(type.TotalSize)</div>
+                                                    <div class="text-sm text-gray-400">@type.FileCount.ToString("N0") files</div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="relative h-8 bg-gray-700 rounded-full overflow-hidden">
+                                                <div class="absolute h-full rounded-full transition-all duration-500"
+                                                     style="width: @percentage%; background: @color">
+                                                    <div class="flex items-center justify-end h-full pr-2">
+                                                        <span class="text-xs font-bold text-white drop-shadow">
+                                                            @percentage.ToString("F1")%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            @if (type.Recommendation != null)
+                                            {
+                                                <div class="mt-2 p-2 bg-yellow-900 bg-opacity-50 rounded text-sm text-yellow-300">
+                                                    💡 @type.Recommendation
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                
+                                <!-- Storage Comparison -->
+                                <div class="mt-6 p-4 bg-gray-800 rounded-lg">
+                                    <h3 class="font-bold mb-3 text-yellow-400">Quick Comparisons:</h3>
+                                    <div class="space-y-2 text-sm">
+                                        @if (VideoSize > 0 && ImageSize > 0)
+                                        {
+                                            <div>📹 Videos use <span class="font-bold text-lg">@((VideoSize / (ImageSize + 1)).ToString("F0"))x</span> more space than images</div>
+                                        }
+                                        @if (DocumentSize > 0 && VideoSize > 0)
+                                        {
+                                            <div>📄 You could store <span class="font-bold text-lg">@((VideoSize / (DocumentSize + 1)).ToString("F0"))</span> copies of all your documents in the space used by videos</div>
+                                        }
+                                        @if (MusicSize > 0)
+                                        {
+                                            <div>🎵 Music files: @FormatBytes(MusicSize) (@((MusicSize * 100.0 / TotalSize).ToString("F1"))% of total)</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-center py-12 text-gray-500">
+                                    <i class="bi bi-inbox text-6xl mb-3"></i>
+                                    <p>No scan data available. Run a scan first.</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column - Optimization Suggestions -->
+                <div class="space-y-6">
+                    <!-- Space Recovery Opportunities -->
+                    <div class="bg-gray-900 rounded-xl shadow-xl p-6">
+                        <h3 class="text-xl font-bold mb-4 text-green-400">
+                            <i class="bi bi-recycle mr-2"></i>
+                            Recovery Opportunities
+                        </h3>
+                        <div class="space-y-3">
+                            @foreach (var opp in RecoveryOpportunities)
+                            {
+                                <div class="flex items-center justify-between p-3 bg-gray-800 rounded-lg hover:bg-gray-700 cursor-pointer"
+                                     @onclick="() => ExecuteRecovery(opp)">
+                                    <div>
+                                        <div class="font-medium">@opp.Name</div>
+                                        <div class="text-xs text-gray-400">@opp.Description</div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="font-bold text-green-400">@FormatBytes(opp.Size)</div>
+                                        <div class="text-xs text-gray-500">@opp.FileCount files</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Move to Another Drive -->
+                    <div class="bg-gray-900 rounded-xl shadow-xl p-6">
+                        <h3 class="text-xl font-bold mb-4 text-blue-400">
+                            <i class="bi bi-arrow-left-right mr-2"></i>
+                            Move to Another Drive
+                        </h3>
+                        <div class="space-y-3">
+                            @foreach (var suggestion in MoveSuggestions)
+                            {
+                                <div class="p-3 bg-gray-800 rounded-lg">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="font-medium">@suggestion.Category</span>
+                                        <span class="text-green-400">@FormatBytes(suggestion.Size)</span>
+                                    </div>
+                                    <button class="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                                            @onclick="() => MoveToOtherDrive(suggestion)">
+                                        Move to External Drive
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Storage Tips -->
+                    <div class="bg-gradient-to-br from-purple-900 to-pink-900 rounded-xl shadow-xl p-6">
+                        <h3 class="text-xl font-bold mb-4">
+                            <i class="bi bi-lightbulb-fill text-yellow-400 mr-2"></i>
+                            Pro Tips
+                        </h3>
+                        <ul class="space-y-2 text-sm">
+                            <li>• Enable Windows Storage Sense for automatic cleanup</li>
+                            <li>• Use cloud storage for photos and videos</li>
+                            <li>• Compress old projects into ZIP files</li>
+                            <li>• Clear browser cache regularly</li>
+                            <li>• Uninstall unused programs</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private string? CurrentPath;
+    private long TotalSize = 0;
+    private long PotentialSavings = 0;
+    private long TempFilesSize = 0;
+    private long OldDownloadsSize = 0;
+    private long DuplicatesSize = 0;
+    private long CacheSize = 0;
+    private long VideoSize = 0;
+    private long ImageSize = 0;
+    private long DocumentSize = 0;
+    private long MusicSize = 0;
+    
+    private List<FileTypeCategory> FileTypeAnalysis = new();
+    private List<RecoveryOpportunity> RecoveryOpportunities = new();
+    private List<MoveSuggestion> MoveSuggestions = new();
+    
+    private class FileTypeCategory
+    {
+        public string Category { get; set; } = "";
+        public List<string> Extensions { get; set; } = new();
+        public long TotalSize { get; set; }
+        public int FileCount { get; set; }
+        public string? Recommendation { get; set; }
+    }
+    
+    private class RecoveryOpportunity
+    {
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+        public long Size { get; set; }
+        public int FileCount { get; set; }
+        public string Action { get; set; } = "";
+    }
+    
+    private class MoveSuggestion
+    {
+        public string Category { get; set; } = "";
+        public long Size { get; set; }
+        public List<string> Paths { get; set; } = new();
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await AnalyzeDisk();
+    }
+    
+    private async Task AnalyzeDisk()
+    {
+        try
+        {
+            IsLoading = true;
+            Logger.LogInformation("Starting disk optimization analysis");
+            
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get scan root
+            tbl_scan_roots? scanRoot = null;
+            if (ScanRootId > 0)
+            {
+                scanRoot = await context.tbl_scan_roots.FindAsync(ScanRootId);
+            }
+            else
+            {
+                scanRoot = await context.tbl_scan_roots
+                    .Where(sr => sr.last_scan_time != null)
+                    .OrderByDescending(sr => sr.last_scan_time)
+                    .FirstOrDefaultAsync();
+                    
+                if (scanRoot != null)
+                {
+                    ScanRootId = scanRoot.id;
+                }
+            }
+            
+            if (scanRoot != null)
+            {
+                CurrentPath = scanRoot.path;
+                
+                // Get all files
+                var allFiles = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId)
+                    .SelectMany(f => f.files)
+                    .ToListAsync();
+                
+                TotalSize = allFiles.Sum(f => f.size);
+                
+                // Categorize files by type
+                var categories = new Dictionary<string, FileTypeCategory>();
+                
+                foreach (var file in allFiles)
+                {
+                    var category = CategorizeFile(file.extension ?? "");
+                    if (!categories.ContainsKey(category))
+                    {
+                        categories[category] = new FileTypeCategory
+                        {
+                            Category = category,
+                            Extensions = new List<string>()
+                        };
+                    }
+                    
+                    var cat = categories[category];
+                    cat.TotalSize += file.size;
+                    cat.FileCount++;
+                    
+                    var ext = file.extension ?? "no-ext";
+                    if (!cat.Extensions.Contains(ext))
+                    {
+                        cat.Extensions.Add(ext);
+                    }
+                }
+                
+                // Sort by size and add recommendations
+                FileTypeAnalysis = categories.Values
+                    .OrderByDescending(c => c.TotalSize)
+                    .ToList();
+                
+                // Add recommendations
+                foreach (var cat in FileTypeAnalysis)
+                {
+                    cat.Recommendation = GetRecommendation(cat);
+                }
+                
+                // Calculate specific sizes for comparisons
+                VideoSize = categories.Where(c => c.Key == "Videos").Sum(c => c.Value.TotalSize);
+                ImageSize = categories.Where(c => c.Key == "Images").Sum(c => c.Value.TotalSize);
+                DocumentSize = categories.Where(c => c.Key == "Documents").Sum(c => c.Value.TotalSize);
+                MusicSize = categories.Where(c => c.Key == "Music").Sum(c => c.Value.TotalSize);
+                
+                // Find recovery opportunities
+                AnalyzeRecoveryOpportunities(allFiles);
+                
+                // Generate move suggestions
+                GenerateMoveSuggestions();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error analyzing disk");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private string CategorizeFile(string extension)
+    {
+        extension = extension?.ToLower() ?? "";
+        
+        return extension switch
+        {
+            "jpg" or "jpeg" or "png" or "gif" or "bmp" or "svg" or "webp" or "ico" or "tiff" => "Images",
+            "mp4" or "avi" or "mov" or "wmv" or "flv" or "mkv" or "webm" or "m4v" or "mpg" or "mpeg" => "Videos",
+            "mp3" or "wav" or "flac" or "aac" or "ogg" or "wma" or "m4a" or "opus" => "Music",
+            "doc" or "docx" or "pdf" or "txt" or "odt" or "rtf" or "tex" => "Documents",
+            "xls" or "xlsx" or "csv" or "ods" => "Spreadsheets",
+            "ppt" or "pptx" or "odp" => "Presentations",
+            "zip" or "rar" or "7z" or "tar" or "gz" or "bz2" or "xz" => "Archives",
+            "exe" or "msi" or "app" or "deb" or "rpm" => "Programs",
+            "dll" or "so" or "dylib" => "Libraries",
+            "iso" or "img" or "dmg" or "vhd" or "vmdk" => "Disk Images",
+            "bak" or "backup" or "old" => "Backups",
+            "tmp" or "temp" or "cache" => "Temporary",
+            "log" or "logs" => "Logs",
+            "html" or "css" or "js" or "ts" or "jsx" or "tsx" => "Web Files",
+            "cs" or "cpp" or "java" or "py" or "rb" or "go" or "rs" => "Source Code",
+            "json" or "xml" or "yaml" or "yml" or "toml" or "ini" or "conf" or "config" => "Config Files",
+            "sql" or "db" or "sqlite" => "Databases",
+            _ => "Other Files"
+        };
+    }
+    
+    private string GetRecommendation(FileTypeCategory cat)
+    {
+        return cat.Category switch
+        {
+            "Videos" when cat.TotalSize > 10_737_418_240 => "Consider moving videos to external storage or cloud",
+            "Images" when cat.TotalSize > 5_368_709_120 => "Use Google Photos or OneDrive for photo backup",
+            "Temporary" => "Safe to delete - these are temporary files",
+            "Logs" => "Old log files can usually be deleted",
+            "Backups" when cat.TotalSize > 1_073_741_824 => "Review old backups - you may not need all of them",
+            "Archives" => "Extract needed files and delete old archives",
+            "Disk Images" => "ISO files can be deleted after installation",
+            _ => null
+        };
+    }
+    
+    private void AnalyzeRecoveryOpportunities(List<tbl_files> files)
+    {
+        RecoveryOpportunities.Clear();
+        
+        // Temp files
+        var tempFiles = files.Where(f => 
+            f.extension?.ToLower() == "tmp" || 
+            f.extension?.ToLower() == "temp" ||
+            f.name.Contains("~") ||
+            f.name.StartsWith("tmp", StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+        
+        if (tempFiles.Any())
+        {
+            TempFilesSize = tempFiles.Sum(f => f.size);
+            RecoveryOpportunities.Add(new RecoveryOpportunity
+            {
+                Name = "Temporary Files",
+                Description = "Safe to delete",
+                Size = TempFilesSize,
+                FileCount = tempFiles.Count,
+                Action = "clean-temp"
+            });
+        }
+        
+        // Old downloads (files in Downloads folder older than 30 days)
+        // This is simplified - in real app would check actual Downloads folder
+        var oldFiles = files.Where(f => 
+            (DateTime.Now - f.last_modified).TotalDays > 30
+        ).Take(100).ToList();
+        
+        if (oldFiles.Any())
+        {
+            OldDownloadsSize = oldFiles.Sum(f => f.size);
+            RecoveryOpportunities.Add(new RecoveryOpportunity
+            {
+                Name = "Old Files (30+ days)",
+                Description = "Review and delete",
+                Size = OldDownloadsSize,
+                FileCount = oldFiles.Count,
+                Action = "clean-old"
+            });
+        }
+        
+        // Find duplicates (simplified - by name and size)
+        var duplicates = files
+            .GroupBy(f => new { f.name, f.size })
+            .Where(g => g.Count() > 1)
+            .SelectMany(g => g.Skip(1))
+            .ToList();
+        
+        if (duplicates.Any())
+        {
+            DuplicatesSize = duplicates.Sum(f => f.size);
+            RecoveryOpportunities.Add(new RecoveryOpportunity
+            {
+                Name = "Duplicate Files",
+                Description = "Keep only one copy",
+                Size = DuplicatesSize,
+                FileCount = duplicates.Count,
+                Action = "remove-duplicates"
+            });
+        }
+        
+        // Cache files
+        var cacheFiles = files.Where(f => 
+            f.extension?.ToLower() == "cache" ||
+            f.name.Contains("cache", StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+        
+        if (cacheFiles.Any())
+        {
+            CacheSize = cacheFiles.Sum(f => f.size);
+            RecoveryOpportunities.Add(new RecoveryOpportunity
+            {
+                Name = "Cache Files",
+                Description = "Will be recreated if needed",
+                Size = CacheSize,
+                FileCount = cacheFiles.Count,
+                Action = "clean-cache"
+            });
+        }
+        
+        PotentialSavings = RecoveryOpportunities.Sum(r => r.Size);
+    }
+    
+    private void GenerateMoveSuggestions()
+    {
+        MoveSuggestions.Clear();
+        
+        if (VideoSize > 1_073_741_824) // 1GB
+        {
+            MoveSuggestions.Add(new MoveSuggestion
+            {
+                Category = "Video Files",
+                Size = VideoSize,
+                Paths = new List<string> { "Videos", "Movies", "Recordings" }
+            });
+        }
+        
+        if (ImageSize > 5_368_709_120) // 5GB
+        {
+            MoveSuggestions.Add(new MoveSuggestion
+            {
+                Category = "Photo Collection",
+                Size = ImageSize,
+                Paths = new List<string> { "Pictures", "Photos", "Screenshots" }
+            });
+        }
+        
+        var archivesCat = FileTypeAnalysis.FirstOrDefault(f => f.Category == "Archives");
+        if (archivesCat?.TotalSize > 1_073_741_824)
+        {
+            MoveSuggestions.Add(new MoveSuggestion
+            {
+                Category = "Archive Files",
+                Size = archivesCat.TotalSize,
+                Paths = new List<string> { "Archives", "Backups", "Old Projects" }
+            });
+        }
+    }
+    
+    private string GetFileTypeIcon(string category)
+    {
+        return category switch
+        {
+            "Videos" => "🎬",
+            "Images" => "🖼️",
+            "Music" => "🎵",
+            "Documents" => "📄",
+            "Spreadsheets" => "📊",
+            "Presentations" => "📽️",
+            "Archives" => "📦",
+            "Programs" => "💿",
+            "Libraries" => "⚙️",
+            "Disk Images" => "💽",
+            "Backups" => "💾",
+            "Temporary" => "🗑️",
+            "Logs" => "📋",
+            "Web Files" => "🌐",
+            "Source Code" => "💻",
+            "Config Files" => "⚙️",
+            "Databases" => "🗄️",
+            _ => "📎"
+        };
+    }
+    
+    private string GetCategoryColor(string category)
+    {
+        return category switch
+        {
+            "Videos" => "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            "Images" => "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+            "Music" => "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+            "Documents" => "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
+            "Archives" => "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+            "Temporary" => "linear-gradient(135deg, #30cfd0 0%, #330867 100%)",
+            _ => "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)"
+        };
+    }
+    
+    private async Task CleanTempFiles()
+    {
+        await JS.InvokeVoidAsync("alert", $"Ready to clean {FormatBytes(TempFilesSize)} of temporary files");
+    }
+    
+    private async Task RemoveOldDownloads()
+    {
+        await JS.InvokeVoidAsync("alert", $"Review {FormatBytes(OldDownloadsSize)} of old downloads");
+    }
+    
+    private async Task CleanDuplicates()
+    {
+        await JS.InvokeVoidAsync("alert", $"Found {FormatBytes(DuplicatesSize)} in duplicate files");
+    }
+    
+    private async Task CleanCaches()
+    {
+        await JS.InvokeVoidAsync("alert", $"Clear {FormatBytes(CacheSize)} of cache files");
+    }
+    
+    private async Task ExecuteRecovery(RecoveryOpportunity opp)
+    {
+        await JS.InvokeVoidAsync("alert", $"Execute recovery: {opp.Name} - {FormatBytes(opp.Size)}");
+    }
+    
+    private async Task MoveToOtherDrive(MoveSuggestion suggestion)
+    {
+        await JS.InvokeVoidAsync("alert", $"Move {suggestion.Category} ({FormatBytes(suggestion.Size)}) to another drive");
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

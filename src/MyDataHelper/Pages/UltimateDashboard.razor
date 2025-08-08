@@ -1,0 +1,542 @@
+@page "/ultimate-dashboard"
+@page "/ultimate-dashboard/{ScanRootId:int}"
+@using Microsoft.EntityFrameworkCore
+@using System.Linq
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<UltimateDashboard> Logger
+
+<PageTitle>Disk Analysis - MyDataHelper</PageTitle>
+
+<div class="min-h-screen bg-gray-900 text-white">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-screen">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-20 w-20 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+                <p class="text-2xl">Analyzing your disk...</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Header Bar -->
+        <div class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-6">
+                    <h1 class="text-2xl font-bold flex items-center">
+                        <i class="bi bi-pie-chart-fill mr-3 text-blue-500"></i>
+                        Disk Space Analyzer
+                    </h1>
+                    @if (CurrentPath != null)
+                    {
+                        <div class="text-gray-400">
+                            <i class="bi bi-folder-fill mr-2"></i>
+                            @CurrentPath
+                        </div>
+                    }
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="text-right">
+                        <div class="text-sm text-gray-400">Total Space Analyzed</div>
+                        <div class="text-2xl font-bold">@FormatBytes(TotalSize)</div>
+                    </div>
+                    <button class="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700" @onclick="StartNewScan">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>
+                        New Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="p-6">
+            <div class="grid grid-cols-12 gap-6">
+                
+                <!-- Left Panel - Directory Tree -->
+                <div class="col-span-3 bg-gray-800 rounded-lg p-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+                    <h3 class="text-lg font-bold mb-4 text-blue-400">Directory Structure</h3>
+                    @if (DirectoryTree.Any())
+                    {
+                        <div class="space-y-1">
+                            @foreach (var dir in DirectoryTree)
+                            {
+                                <div class="hover:bg-gray-700 rounded p-2 cursor-pointer @(SelectedDirectory?.id == dir.id ? "bg-gray-700" : "")"
+                                     @onclick="() => SelectDirectory(dir)">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center flex-1 min-w-0">
+                                            <i class="bi bi-folder-fill text-yellow-500 mr-2"></i>
+                                            <span class="truncate text-sm">@GetDirectoryName(dir)</span>
+                                        </div>
+                                        <span class="text-xs text-gray-400 ml-2">@FormatBytes(dir.total_size)</span>
+                                    </div>
+                                    @if (dir.total_size > 0)
+                                    {
+                                        <div class="mt-1 h-1 bg-gray-600 rounded">
+                                            <div class="h-1 bg-blue-500 rounded" style="width: @GetPercentage(dir.total_size)%"></div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-gray-500 text-center py-8">
+                            No directories scanned yet
+                        </div>
+                    }
+                </div>
+
+                <!-- Center Panel - Visual Map -->
+                <div class="col-span-6 bg-gray-800 rounded-lg p-4">
+                    <h3 class="text-lg font-bold mb-4 text-blue-400">Disk Usage Map</h3>
+                    <div class="relative h-[500px] bg-gray-900 rounded border border-gray-700 p-2">
+                        @if (VisualBlocks.Any())
+                        {
+                            @foreach (var block in VisualBlocks)
+                            {
+                                <div class="absolute border border-gray-600 overflow-hidden cursor-pointer hover:border-white transition-all"
+                                     style="left: @block.X%; top: @block.Y%; width: @block.Width%; height: @block.Height%; background-color: @block.Color"
+                                     title="@block.Name - @FormatBytes(block.Size)"
+                                     @onclick="() => DrillDown(block)">
+                                    @if (block.Width > 5 && block.Height > 5)
+                                    {
+                                        <div class="p-1 text-xs">
+                                            <div class="font-bold truncate">@block.DisplayName</div>
+                                            @if (block.Height > 10)
+                                            {
+                                                <div class="text-gray-300">@FormatBytes(block.Size)</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="flex items-center justify-center h-full text-gray-500">
+                                <div class="text-center">
+                                    <i class="bi bi-grid-3x3-gap text-6xl mb-3"></i>
+                                    <p>Run a scan to see disk usage visualization</p>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    
+                    <!-- Legend -->
+                    <div class="mt-4 flex flex-wrap gap-3">
+                        @foreach (var type in GetFileTypeColors())
+                        {
+                            <div class="flex items-center gap-2">
+                                <div class="w-4 h-4 rounded" style="background-color: @type.Value"></div>
+                                <span class="text-xs text-gray-400">@type.Key</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Right Panel - Statistics -->
+                <div class="col-span-3 space-y-4">
+                    <!-- File Extensions -->
+                    <div class="bg-gray-800 rounded-lg p-4">
+                        <h3 class="text-lg font-bold mb-4 text-blue-400">File Types</h3>
+                        @if (ExtensionStats.Any())
+                        {
+                            <div class="space-y-2 max-h-64 overflow-y-auto">
+                                @foreach (var ext in ExtensionStats.Take(10))
+                                {
+                                    <div>
+                                        <div class="flex justify-between text-sm mb-1">
+                                            <span class="flex items-center">
+                                                <div class="w-3 h-3 rounded-full mr-2" style="background-color: @GetExtensionColor(ext.Extension)"></div>
+                                                .@ext.Extension
+                                            </span>
+                                            <span class="text-gray-400">@FormatBytes(ext.TotalSize)</span>
+                                        </div>
+                                        <div class="h-2 bg-gray-700 rounded">
+                                            <div class="h-2 rounded" style="width: @GetExtensionPercentage(ext.TotalSize)%; background-color: @GetExtensionColor(ext.Extension)"></div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mt-1">
+                                            @ext.FileCount files • @GetExtensionPercentage(ext.TotalSize).ToString("F1")%
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-gray-500 text-center py-4">No file data available</div>
+                        }
+                    </div>
+
+                    <!-- Largest Files -->
+                    <div class="bg-gray-800 rounded-lg p-4">
+                        <h3 class="text-lg font-bold mb-4 text-blue-400">Largest Files</h3>
+                        @if (LargestFiles.Any())
+                        {
+                            <div class="space-y-2 max-h-64 overflow-y-auto">
+                                @foreach (var file in LargestFiles.Take(10))
+                                {
+                                    <div class="flex items-center justify-between p-2 hover:bg-gray-700 rounded">
+                                        <div class="flex items-center flex-1 min-w-0">
+                                            <i class="@GetFileIcon(file.extension) mr-2 text-gray-400"></i>
+                                            <span class="text-sm truncate" title="@file.name">@file.name</span>
+                                        </div>
+                                        <span class="text-sm text-gray-400 ml-2">@FormatBytes(file.size)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-gray-500 text-center py-4">No files found</div>
+                        }
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="bg-gray-800 rounded-lg p-4">
+                        <h3 class="text-lg font-bold mb-4 text-blue-400">Statistics</h3>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Total Files:</span>
+                                <span class="font-bold">@TotalFiles.ToString("N0")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Total Folders:</span>
+                                <span class="font-bold">@TotalFolders.ToString("N0")</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Average File Size:</span>
+                                <span class="font-bold">@FormatBytes(AvgFileSize)</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Scan Date:</span>
+                                <span class="font-bold">@(LastScanTime?.ToString("MMM dd, yyyy") ?? "Never")</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private string? CurrentPath;
+    private DateTime? LastScanTime;
+    private long TotalSize = 0;
+    private int TotalFiles = 0;
+    private int TotalFolders = 0;
+    private long AvgFileSize = 0;
+    
+    private List<tbl_folders> DirectoryTree = new();
+    private tbl_folders? SelectedDirectory;
+    private List<VisualBlock> VisualBlocks = new();
+    private List<ExtensionStat> ExtensionStats = new();
+    private List<tbl_files> LargestFiles = new();
+    
+    private class VisualBlock
+    {
+        public string Name { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public long Size { get; set; }
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public string Color { get; set; } = "#4B5563";
+        public string Type { get; set; } = "folder";
+        public object? Data { get; set; }
+    }
+    
+    private class ExtensionStat
+    {
+        public string Extension { get; set; } = "";
+        public long TotalSize { get; set; }
+        public int FileCount { get; set; }
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+    
+    private async Task LoadDashboardData()
+    {
+        try
+        {
+            IsLoading = true;
+            Logger.LogInformation("Loading dashboard data for ScanRootId: {ScanRootId}", ScanRootId);
+            
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get the scan root or the most recent one
+            tbl_scan_roots? scanRoot = null;
+            if (ScanRootId > 0)
+            {
+                scanRoot = await context.tbl_scan_roots.FindAsync(ScanRootId);
+            }
+            else
+            {
+                scanRoot = await context.tbl_scan_roots
+                    .Where(sr => sr.last_scan_time != null)
+                    .OrderByDescending(sr => sr.last_scan_time)
+                    .FirstOrDefaultAsync();
+                    
+                if (scanRoot != null)
+                {
+                    ScanRootId = scanRoot.id;
+                }
+            }
+            
+            if (scanRoot != null)
+            {
+                CurrentPath = scanRoot.path;
+                LastScanTime = scanRoot.last_scan_time;
+                
+                // Load directory tree
+                DirectoryTree = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId)
+                    .OrderByDescending(f => f.total_size)
+                    .Take(50)
+                    .ToListAsync();
+                
+                Logger.LogInformation("Loaded {Count} directories", DirectoryTree.Count);
+                
+                // Calculate total size from root folder
+                var rootFolder = DirectoryTree.FirstOrDefault(f => f.depth == 0);
+                if (rootFolder != null)
+                {
+                    TotalSize = rootFolder.total_size;
+                }
+                else if (DirectoryTree.Any())
+                {
+                    TotalSize = DirectoryTree.Max(f => f.total_size);
+                }
+                
+                TotalFolders = DirectoryTree.Count;
+                
+                // Load files for statistics
+                var allFiles = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId)
+                    .SelectMany(f => f.files)
+                    .ToListAsync();
+                    
+                Logger.LogInformation("Loaded {Count} files", allFiles.Count);
+                
+                TotalFiles = allFiles.Count;
+                AvgFileSize = TotalFiles > 0 ? (long)allFiles.Average(f => f.size) : 0;
+                
+                // Calculate extension statistics
+                ExtensionStats = allFiles
+                    .GroupBy(f => string.IsNullOrEmpty(f.extension) ? "none" : f.extension)
+                    .Select(g => new ExtensionStat
+                    {
+                        Extension = g.Key,
+                        TotalSize = g.Sum(f => f.size),
+                        FileCount = g.Count()
+                    })
+                    .OrderByDescending(e => e.TotalSize)
+                    .ToList();
+                
+                // Get largest files
+                LargestFiles = allFiles
+                    .OrderByDescending(f => f.size)
+                    .Take(20)
+                    .ToList();
+                
+                // Generate visual blocks for top-level directories
+                GenerateVisualBlocks();
+            }
+            else
+            {
+                Logger.LogWarning("No scan root found");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading dashboard data");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private void GenerateVisualBlocks()
+    {
+        VisualBlocks.Clear();
+        
+        if (!DirectoryTree.Any() || TotalSize == 0) return;
+        
+        // Take top directories that fit in view
+        var topDirs = DirectoryTree
+            .Where(d => d.total_size > 0)
+            .Take(20)
+            .ToList();
+        
+        if (!topDirs.Any()) return;
+        
+        // Simple treemap algorithm
+        double x = 0, y = 0;
+        double remainingWidth = 100;
+        double remainingHeight = 100;
+        
+        foreach (var dir in topDirs)
+        {
+            var percentage = (double)dir.total_size / TotalSize * 100;
+            if (percentage < 0.5) continue; // Skip tiny items
+            
+            var block = new VisualBlock
+            {
+                Name = dir.path,
+                DisplayName = GetDirectoryName(dir),
+                Size = dir.total_size,
+                Color = GetRandomColor(dir.name),
+                Type = "folder",
+                Data = dir
+            };
+            
+            // Simple layout: place blocks in rows
+            if (remainingWidth > remainingHeight)
+            {
+                // Place horizontally
+                block.X = x;
+                block.Y = y;
+                block.Width = Math.Min(percentage * 2, remainingWidth);
+                block.Height = remainingHeight;
+                x += block.Width;
+                remainingWidth -= block.Width;
+            }
+            else
+            {
+                // Place vertically
+                block.X = x;
+                block.Y = y;
+                block.Width = remainingWidth;
+                block.Height = Math.Min(percentage * 2, remainingHeight);
+                y += block.Height;
+                remainingHeight -= block.Height;
+            }
+            
+            VisualBlocks.Add(block);
+            
+            // Reset if we've filled the row/column
+            if (remainingWidth < 5)
+            {
+                x = 0;
+                y += remainingHeight;
+                remainingWidth = 100;
+                remainingHeight = 100 - y;
+                if (remainingHeight < 5) break;
+            }
+        }
+    }
+    
+    private void SelectDirectory(tbl_folders dir)
+    {
+        SelectedDirectory = dir;
+        // Could load subdirectories or files here
+    }
+    
+    private void DrillDown(VisualBlock block)
+    {
+        if (block.Data is tbl_folders folder)
+        {
+            SelectDirectory(folder);
+        }
+    }
+    
+    private string GetDirectoryName(tbl_folders dir)
+    {
+        if (string.IsNullOrEmpty(dir.name) || dir.name == dir.path)
+        {
+            return Path.GetFileName(dir.path) ?? dir.path;
+        }
+        return dir.name;
+    }
+    
+    private double GetPercentage(long size)
+    {
+        return TotalSize > 0 ? (size * 100.0 / TotalSize) : 0;
+    }
+    
+    private double GetExtensionPercentage(long size)
+    {
+        return TotalSize > 0 ? (size * 100.0 / TotalSize) : 0;
+    }
+    
+    private string GetRandomColor(string seed)
+    {
+        var colors = new[] { "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16" };
+        var hash = seed?.GetHashCode() ?? 0;
+        return colors[Math.Abs(hash) % colors.Length];
+    }
+    
+    private string GetExtensionColor(string ext)
+    {
+        return ext?.ToLower() switch
+        {
+            "exe" or "dll" => "#6B7280",
+            "jpg" or "jpeg" or "png" or "gif" => "#8B5CF6",
+            "mp4" or "avi" or "mov" => "#EAB308",
+            "mp3" or "wav" => "#10B981",
+            "zip" or "rar" or "7z" => "#EF4444",
+            "doc" or "docx" or "pdf" => "#3B82F6",
+            _ => "#64748B"
+        };
+    }
+    
+    private string GetFileIcon(string? ext)
+    {
+        return ext?.ToLower() switch
+        {
+            "doc" or "docx" => "bi-file-word",
+            "xls" or "xlsx" => "bi-file-excel",
+            "pdf" => "bi-file-pdf",
+            "jpg" or "jpeg" or "png" => "bi-file-image",
+            "mp4" or "avi" => "bi-file-play",
+            "zip" or "rar" => "bi-file-zip",
+            _ => "bi-file"
+        };
+    }
+    
+    private Dictionary<string, string> GetFileTypeColors()
+    {
+        return new Dictionary<string, string>
+        {
+            { "Documents", "#3B82F6" },
+            { "Images", "#8B5CF6" },
+            { "Videos", "#EAB308" },
+            { "Audio", "#10B981" },
+            { "Archives", "#EF4444" },
+            { "System", "#6B7280" },
+            { "Other", "#64748B" }
+        };
+    }
+    
+    private void StartNewScan()
+    {
+        Navigation.NavigateTo("/enhanced-scan");
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

@@ -1,0 +1,65 @@
+@using MyDataHelper.Models
+@using System.IO
+
+<div class="directory-tree">
+    @if (DirectoryProgress?.Any() == true)
+    {
+        <div class="space-y-1 max-h-96 overflow-y-auto">
+            @foreach (var kvp in GetRootDirectories())
+            {
+                <DirectoryTreeNode Directory="@kvp.Value" 
+                                   Children="@GetChildDirectories(kvp.Key)"
+                                   OnToggleExpanded="@OnToggleExpanded"
+                                   OnDirectoryClick="@OnDirectoryClick" />
+            }
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-8 text-gray-500">
+            <i class="bi bi-folder text-4xl mb-2"></i>
+            <div>No directories to display</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, DirectoryScanProgress> DirectoryProgress { get; set; } = new();
+    [Parameter] public EventCallback<DirectoryScanProgress> OnDirectoryClick { get; set; }
+
+    private Dictionary<string, DirectoryScanProgress> GetRootDirectories()
+    {
+        return DirectoryProgress
+            .Where(kvp => kvp.Value.Depth == 0)
+            .OrderBy(kvp => kvp.Key)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+    }
+
+    private Dictionary<string, DirectoryScanProgress> GetChildDirectories(string parentPath)
+    {
+        return DirectoryProgress
+            .Where(kvp => kvp.Value.Depth > 0 && IsDirectChild(kvp.Key, parentPath))
+            .OrderBy(kvp => kvp.Key)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+    }
+
+    private bool IsDirectChild(string childPath, string parentPath)
+    {
+        try
+        {
+            var parentDir = new DirectoryInfo(parentPath);
+            var childDir = new DirectoryInfo(childPath);
+            return childDir.Parent?.FullName.Equals(parentDir.FullName, StringComparison.OrdinalIgnoreCase) == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void OnToggleExpanded(DirectoryScanProgress directory)
+    {
+        directory.IsExpanded = !directory.IsExpanded;
+        StateHasChanged();
+    }
+}

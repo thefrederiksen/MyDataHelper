@@ -1,0 +1,325 @@
+@page "/scan-results"
+@page "/scan-results/{ScanRootId:int}"
+@using Microsoft.EntityFrameworkCore
+@using System.Linq
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Scan Results - MyDataHelper</PageTitle>
+
+<div class="min-h-screen bg-gray-50">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-screen">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+                <p class="text-xl text-gray-600">Loading scan results...</p>
+            </div>
+        </div>
+    }
+    else if (ScanRoot == null)
+    {
+        <div class="max-w-4xl mx-auto px-6 py-12">
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                <i class="bi bi-exclamation-triangle text-yellow-600 text-2xl mr-3"></i>
+                <span class="text-lg">No scan results available. Please run a scan first.</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Header with Summary Stats -->
+        <div class="bg-white shadow-sm border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-6 py-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900">
+                            <i class="bi bi-graph-up mr-3 text-blue-600"></i>
+                            Scan Results
+                        </h1>
+                        <p class="text-gray-600 mt-1">
+                            <i class="bi bi-folder-fill mr-1"></i>
+                            @ScanRoot.path
+                            <span class="text-gray-400 mx-2">•</span>
+                            Last scanned: @(ScanRoot.last_scan_time?.ToString("MMM dd, yyyy h:mm tt") ?? "Never")
+                        </p>
+                    </div>
+                    <div class="flex gap-3">
+                        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium" 
+                                @onclick="RefreshScan">
+                            <i class="bi bi-arrow-clockwise mr-2"></i>
+                            Rescan
+                        </button>
+                        <button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                                @onclick="ExportResults">
+                            <i class="bi bi-download mr-2"></i>
+                            Export
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Summary Statistics Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-4 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-blue-100 text-sm">Total Size</p>
+                                <p class="text-2xl font-bold">@FormatBytes(TotalSize)</p>
+                            </div>
+                            <i class="bi bi-server text-3xl text-blue-200"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-4 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-green-100 text-sm">Total Files</p>
+                                <p class="text-2xl font-bold">@TotalFiles.ToString("N0")</p>
+                            </div>
+                            <i class="bi bi-file-earmark text-3xl text-green-200"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-4 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-purple-100 text-sm">Total Folders</p>
+                                <p class="text-2xl font-bold">@TotalFolders.ToString("N0")</p>
+                            </div>
+                            <i class="bi bi-folder text-3xl text-purple-200"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg p-4 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-orange-100 text-sm">Avg File Size</p>
+                                <p class="text-2xl font-bold">@FormatBytes(AvgFileSize)</p>
+                            </div>
+                            <i class="bi bi-calculator text-3xl text-orange-200"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="max-w-7xl mx-auto px-6 py-8">
+            <!-- View Tabs -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+                <div class="border-b border-gray-200">
+                    <div class="flex">
+                        <button class="@GetTabClass("treemap")" @onclick="@(() => SetActiveTab("treemap"))">
+                            <i class="bi bi-grid-3x3-gap mr-2"></i>
+                            Treemap View
+                        </button>
+                        <button class="@GetTabClass("tree")" @onclick="@(() => SetActiveTab("tree"))">
+                            <i class="bi bi-diagram-3 mr-2"></i>
+                            Directory Tree
+                        </button>
+                        <button class="@GetTabClass("types")" @onclick="@(() => SetActiveTab("types"))">
+                            <i class="bi bi-file-earmark-code mr-2"></i>
+                            File Types
+                        </button>
+                        <button class="@GetTabClass("largest")" @onclick="@(() => SetActiveTab("largest"))">
+                            <i class="bi bi-sort-down mr-2"></i>
+                            Largest Files
+                        </button>
+                        <button class="@GetTabClass("duplicates")" @onclick="@(() => SetActiveTab("duplicates"))">
+                            <i class="bi bi-files mr-2"></i>
+                            Duplicates
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-6">
+                    @switch (ActiveTab)
+                    {
+                        case "treemap":
+                            <TreemapVisualization ScanRootId="@ScanRootId" />
+                            break;
+                            
+                        case "tree":
+                            <DirectoryTreeView ScanRootId="@ScanRootId" />
+                            break;
+                            
+                        case "types":
+                            <FileTypesAnalysis ScanRootId="@ScanRootId" />
+                            break;
+                            
+                        case "largest":
+                            <LargestFilesReport ScanRootId="@ScanRootId" />
+                            break;
+                            
+                        case "duplicates":
+                            <DuplicateFilesReport ScanRootId="@ScanRootId" />
+                            break;
+                    }
+                </div>
+            </div>
+            
+            <!-- Quick Actions Panel -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                    <i class="bi bi-lightning-charge mr-2 text-yellow-500"></i>
+                    Quick Actions
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <button class="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                            @onclick="CleanupTemp">
+                        <i class="bi bi-trash text-2xl text-red-500 mb-2"></i>
+                        <h4 class="font-semibold text-gray-900">Clean Temp Files</h4>
+                        <p class="text-sm text-gray-600">Remove temporary and cache files</p>
+                    </button>
+                    
+                    <button class="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                            @onclick="FindLargeFiles">
+                        <i class="bi bi-search text-2xl text-blue-500 mb-2"></i>
+                        <h4 class="font-semibold text-gray-900">Find Large Files</h4>
+                        <p class="text-sm text-gray-600">Locate files over 100 MB</p>
+                    </button>
+                    
+                    <button class="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                            @onclick="AnalyzeDuplicates">
+                        <i class="bi bi-files text-2xl text-purple-500 mb-2"></i>
+                        <h4 class="font-semibold text-gray-900">Analyze Duplicates</h4>
+                        <p class="text-sm text-gray-600">Find and remove duplicate files</p>
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private tbl_scan_roots? ScanRoot;
+    private long TotalSize = 0;
+    private int TotalFiles = 0;
+    private int TotalFolders = 0;
+    private long AvgFileSize = 0;
+    private string ActiveTab = "treemap";
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadData();
+    }
+    
+    private async Task LoadData()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // If no ScanRootId provided, get the most recent scan
+            if (ScanRootId == 0)
+            {
+                ScanRoot = await context.tbl_scan_roots
+                    .Where(sr => sr.last_scan_time != null)
+                    .OrderByDescending(sr => sr.last_scan_time)
+                    .FirstOrDefaultAsync();
+                    
+                if (ScanRoot != null)
+                {
+                    ScanRootId = ScanRoot.id;
+                }
+            }
+            else
+            {
+                ScanRoot = await context.tbl_scan_roots.FindAsync(ScanRootId);
+            }
+            
+            if (ScanRoot != null)
+            {
+                // Calculate statistics
+                var folders = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId)
+                    .ToListAsync();
+                    
+                // Get all files from folders in this scan root
+                var files = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId)
+                    .SelectMany(f => f.files)
+                    .ToListAsync();
+                
+                TotalFolders = folders.Count;
+                TotalFiles = files.Count;
+                TotalSize = folders.Sum(f => f.total_size);
+                AvgFileSize = TotalFiles > 0 ? TotalSize / TotalFiles : 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private void SetActiveTab(string tab)
+    {
+        ActiveTab = tab;
+    }
+    
+    private string GetTabClass(string tab)
+    {
+        var baseClass = "px-6 py-3 text-sm font-medium border-b-2 transition-colors";
+        if (ActiveTab == tab)
+        {
+            return $"{baseClass} border-blue-600 text-blue-600";
+        }
+        return $"{baseClass} border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300";
+    }
+    
+    private async Task RefreshScan()
+    {
+        Navigation.NavigateTo($"/enhanced-scan");
+    }
+    
+    private async Task ExportResults()
+    {
+        // TODO: Implement export functionality
+        await JS.InvokeVoidAsync("alert", "Export functionality coming soon!");
+    }
+    
+    private async Task CleanupTemp()
+    {
+        await JS.InvokeVoidAsync("alert", "Cleanup functionality coming soon!");
+    }
+    
+    private async Task FindLargeFiles()
+    {
+        SetActiveTab("largest");
+    }
+    
+    private async Task AnalyzeDuplicates()
+    {
+        SetActiveTab("duplicates");
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

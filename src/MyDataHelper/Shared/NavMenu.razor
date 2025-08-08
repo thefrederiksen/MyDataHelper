@@ -3,7 +3,7 @@
 <div class="h-full flex flex-col">
     <!-- Logo/Brand -->
     <div class="flex items-center gap-3 px-6 py-5 border-b border-primary-700">
-        <i class="bi bi-hdd-stack-fill text-2xl text-white"></i>
+        <i class="bi bi-shield-fill-check text-2xl text-white"></i>
         <span class="text-xl font-semibold text-white">MyDataHelper</span>
     </div>
     
@@ -12,57 +12,29 @@
         <!-- Main Section -->
         <div class="space-y-1">
             <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                     href="" 
+                     href="enhanced-scan"
                      Match="NavLinkMatch.All">
-                <i class="bi bi-speedometer2 text-lg"></i>
-                <span>Dashboard</span>
-            </NavLink>
-            
-            <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                     href="scan">
-                <i class="bi bi-arrow-repeat text-lg"></i>
+                <i class="bi bi-radar text-lg"></i>
                 <span>Disk Scan</span>
             </NavLink>
             
             <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                     href="tree">
-                <i class="bi bi-diagram-3 text-lg"></i>
-                <span>Tree View</span>
+                     href="ultimate-dashboard">
+                <i class="bi bi-pie-chart-fill text-lg"></i>
+                <span>Disk Analysis</span>
             </NavLink>
-        </div>
-        
-        <!-- Analysis Section -->
-        <div class="pt-6">
-            <h3 class="px-3 text-xs font-semibold text-primary-200 uppercase tracking-wider">
-                Analysis
-            </h3>
-            <div class="mt-3 space-y-1">
-                <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                         href="duplicates">
-                    <i class="bi bi-files text-lg"></i>
-                    <span>Duplicates</span>
-                </NavLink>
-                
-                <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                         href="report">
-                    <i class="bi bi-file-earmark-text text-lg"></i>
-                    <span>Reports</span>
-                </NavLink>
-            </div>
-        </div>
-        
-        <!-- System Section -->
-        <div class="pt-6">
-            <h3 class="px-3 text-xs font-semibold text-primary-200 uppercase tracking-wider">
-                System
-            </h3>
-            <div class="mt-3 space-y-1">
-                <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
-                         href="settings">
-                    <i class="bi bi-gear text-lg"></i>
-                    <span>Settings</span>
-                </NavLink>
-            </div>
+            
+            <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
+                     href="disk-optimization">
+                <i class="bi bi-speedometer2 text-lg"></i>
+                <span>Disk Optimization</span>
+            </NavLink>
+            
+            <NavLink class="nav-link flex items-center gap-3 px-3 py-2 text-white rounded-md hover:bg-primary-700 transition-colors" 
+                     href="scan">
+                <i class="bi bi-clock-history text-lg"></i>
+                <span>Scan History</span>
+            </NavLink>
         </div>
     </nav>
     

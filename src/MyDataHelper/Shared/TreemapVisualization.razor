@@ -1,0 +1,359 @@
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IJSRuntime JS
+
+<div class="treemap-container">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-96">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        </div>
+    }
+    else
+    {
+        <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-gray-600">Display:</span>
+                <select class="px-3 py-1 border border-gray-300 rounded-md text-sm" @onchange="OnDepthChanged">
+                    <option value="1">Top Level Only</option>
+                    <option value="2" selected>2 Levels Deep</option>
+                    <option value="3">3 Levels Deep</option>
+                    <option value="4">4 Levels Deep</option>
+                </select>
+                <button class="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                        @onclick="ZoomOut" disabled="@(CurrentPath == RootPath)">
+                    <i class="bi bi-zoom-out mr-1"></i>
+                    Zoom Out
+                </button>
+            </div>
+            <div class="text-sm text-gray-600">
+                <i class="bi bi-folder-fill mr-1"></i>
+                Current: @CurrentPath
+            </div>
+        </div>
+        
+        <!-- Treemap Visualization -->
+        <div class="border-2 border-gray-300 rounded-lg overflow-hidden bg-white" style="height: 500px; position: relative;">
+            @if (TreemapData.Any())
+            {
+                <div class="treemap-grid" style="position: absolute; inset: 0;">
+                    @foreach (var item in TreemapData)
+                    {
+                        <div class="treemap-item"
+                             style="@GetItemStyle(item)"
+                             @onclick="() => OnItemClick(item)"
+                             title="@item.Name - @FormatBytes(item.Size)">
+                            <div class="treemap-content">
+                                @if (item.Width > 60 && item.Height > 30)
+                                {
+                                    <div class="font-semibold text-xs truncate px-1">@item.Name</div>
+                                    @if (item.Height > 45)
+                                    {
+                                        <div class="text-xs text-gray-600 px-1">@FormatBytes(item.Size)</div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="flex items-center justify-center h-full text-gray-500">
+                    <div class="text-center">
+                        <i class="bi bi-inbox text-5xl mb-3"></i>
+                        <p>No data to display</p>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        <!-- Legend -->
+        <div class="mt-4 flex flex-wrap gap-4">
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-blue-500 rounded"></div>
+                <span class="text-sm text-gray-600">Folders</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-green-500 rounded"></div>
+                <span class="text-sm text-gray-600">Documents</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-purple-500 rounded"></div>
+                <span class="text-sm text-gray-600">Images</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-yellow-500 rounded"></div>
+                <span class="text-sm text-gray-600">Videos</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-red-500 rounded"></div>
+                <span class="text-sm text-gray-600">Archives</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 bg-gray-500 rounded"></div>
+                <span class="text-sm text-gray-600">Other</span>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .treemap-item {
+        position: absolute;
+        border: 1px solid white;
+        overflow: hidden;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .treemap-item:hover {
+        opacity: 0.8;
+        border: 2px solid #333;
+        z-index: 10;
+    }
+    
+    .treemap-content {
+        text-align: center;
+        color: white;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        width: 100%;
+    }
+</style>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private List<TreemapItem> TreemapData = new();
+    private string CurrentPath = "";
+    private string RootPath = "";
+    private int MaxDepth = 2;
+    
+    private class TreemapItem
+    {
+        public string Path { get; set; } = "";
+        public string Name { get; set; } = "";
+        public long Size { get; set; }
+        public string Type { get; set; } = "folder";
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool IsFolder { get; set; }
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTreemapData();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadTreemapData();
+    }
+    
+    private async Task LoadTreemapData()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            var scanRoot = await context.tbl_scan_roots.FindAsync(ScanRootId);
+            if (scanRoot != null)
+            {
+                RootPath = CurrentPath = scanRoot.path;
+                
+                // Get folders and files
+                var folders = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId && f.path.StartsWith(CurrentPath))
+                    .ToListAsync();
+                    
+                // Get files from folders in the current scan
+                var filesInFolders = await context.tbl_folders
+                    .Where(f => f.scan_root_id == ScanRootId && f.path.StartsWith(CurrentPath))
+                    .SelectMany(f => f.files)
+                    .ToListAsync();
+                
+                // Build treemap data
+                TreemapData = BuildTreemap(folders, filesInFolders, CurrentPath, MaxDepth);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private List<TreemapItem> BuildTreemap(List<tbl_folders> folders, List<tbl_files> files, string basePath, int maxDepth)
+    {
+        var items = new List<TreemapItem>();
+        
+        // Group by immediate subdirectories
+        var topLevelFolders = folders
+            .Where(f => GetDepth(f.path, basePath) == 1)
+            .OrderByDescending(f => f.total_size)
+            .Take(50) // Limit for performance
+            .Select(f => new TreemapItem
+            {
+                Path = f.path,
+                Name = Path.GetFileName(f.path) ?? f.path,
+                Size = f.total_size,
+                Type = "folder",
+                IsFolder = true
+            })
+            .ToList();
+        
+        // Add large files from the top-level folders
+        var topLevelFiles = files
+            .OrderByDescending(f => f.size)
+            .Take(20)
+            .Select(f => new TreemapItem
+            {
+                Path = $"{basePath}\\{f.name}",
+                Name = f.name,
+                Size = f.size,
+                Type = GetFileType(f.extension),
+                IsFolder = false
+            })
+            .ToList();
+        
+        items.AddRange(topLevelFolders);
+        items.AddRange(topLevelFiles);
+        
+        // Calculate treemap layout
+        if (items.Any())
+        {
+            CalculateTreemapLayout(items, 0, 0, 100, 100);
+        }
+        
+        return items;
+    }
+    
+    private void CalculateTreemapLayout(List<TreemapItem> items, double x, double y, double width, double height)
+    {
+        if (!items.Any()) return;
+        
+        var totalSize = items.Sum(i => i.Size);
+        if (totalSize == 0) return;
+        
+        double currentX = x;
+        double currentY = y;
+        bool horizontal = width > height;
+        
+        foreach (var item in items)
+        {
+            var ratio = (double)item.Size / totalSize;
+            
+            if (horizontal)
+            {
+                var itemWidth = width * ratio;
+                item.X = currentX;
+                item.Y = y;
+                item.Width = itemWidth;
+                item.Height = height;
+                currentX += itemWidth;
+            }
+            else
+            {
+                var itemHeight = height * ratio;
+                item.X = x;
+                item.Y = currentY;
+                item.Width = width;
+                item.Height = itemHeight;
+                currentY += itemHeight;
+            }
+        }
+    }
+    
+    private int GetDepth(string path, string basePath)
+    {
+        var relative = path.Substring(basePath.Length).TrimStart('\\', '/');
+        if (string.IsNullOrEmpty(relative)) return 0;
+        return relative.Count(c => c == '\\' || c == '/') + 1;
+    }
+    
+    private string GetFileType(string extension)
+    {
+        extension = extension?.ToLower() ?? "";
+        
+        return extension switch
+        {
+            ".doc" or ".docx" or ".pdf" or ".txt" or ".rtf" => "document",
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".svg" => "image",
+            ".mp4" or ".avi" or ".mov" or ".wmv" or ".mkv" => "video",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "archive",
+            ".exe" or ".dll" or ".sys" => "system",
+            _ => "other"
+        };
+    }
+    
+    private string GetItemStyle(TreemapItem item)
+    {
+        var color = item.IsFolder ? "rgb(59, 130, 246)" : GetTypeColor(item.Type);
+        return $"left: {item.X}%; top: {item.Y}%; width: {item.Width}%; height: {item.Height}%; background-color: {color};";
+    }
+    
+    private string GetTypeColor(string type)
+    {
+        return type switch
+        {
+            "document" => "rgb(34, 197, 94)",
+            "image" => "rgb(168, 85, 247)",
+            "video" => "rgb(234, 179, 8)",
+            "archive" => "rgb(239, 68, 68)",
+            "system" => "rgb(156, 163, 175)",
+            _ => "rgb(107, 114, 128)"
+        };
+    }
+    
+    private async Task OnItemClick(TreemapItem item)
+    {
+        if (item.IsFolder)
+        {
+            CurrentPath = item.Path;
+            await LoadTreemapData();
+        }
+    }
+    
+    private async Task ZoomOut()
+    {
+        if (CurrentPath != RootPath)
+        {
+            CurrentPath = Path.GetDirectoryName(CurrentPath) ?? RootPath;
+            await LoadTreemapData();
+        }
+    }
+    
+    private async Task OnDepthChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var depth))
+        {
+            MaxDepth = depth;
+            await LoadTreemapData();
+        }
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

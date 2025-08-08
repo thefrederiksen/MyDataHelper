@@ -1,0 +1,317 @@
+@using Microsoft.EntityFrameworkCore
+@using System.Diagnostics
+@inject IDbContextFactory<MyDataHelperDbContext> DbContextFactory
+@inject IJSRuntime JS
+
+<div class="largest-files-report">
+    @if (IsLoading)
+    {
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        </div>
+    }
+    else if (LargestFiles.Any())
+    {
+        <!-- Filter Controls -->
+        <div class="mb-6 flex items-center gap-4">
+            <div>
+                <label class="text-sm text-gray-600 mr-2">Minimum Size:</label>
+                <select class="px-3 py-1 border border-gray-300 rounded-md text-sm" @onchange="OnMinSizeChanged">
+                    <option value="0">All Sizes</option>
+                    <option value="10485760">10 MB+</option>
+                    <option value="104857600" selected>100 MB+</option>
+                    <option value="524288000">500 MB+</option>
+                    <option value="1073741824">1 GB+</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-sm text-gray-600 mr-2">Show:</label>
+                <select class="px-3 py-1 border border-gray-300 rounded-md text-sm" @onchange="OnLimitChanged">
+                    <option value="25">Top 25</option>
+                    <option value="50" selected>Top 50</option>
+                    <option value="100">Top 100</option>
+                    <option value="200">Top 200</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Files Table -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File Name</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Modified</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    @{
+                        int index = 1;
+                    }
+                    @foreach (var file in LargestFiles)
+                    {
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-4 py-3 text-sm text-gray-500">@index</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center">
+                                    <i class="@GetFileIcon(file.extension) mr-2 text-gray-400"></i>
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-900">@file.name</div>
+                                        <div class="text-xs text-gray-500">@file.extension</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="text-sm text-gray-600 truncate max-w-xs" title="Folder">
+                                    Folder ID: @file.folder_id
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <div class="text-sm font-semibold text-gray-900">@FormatBytes(file.size)</div>
+                                <div class="text-xs text-gray-500">@file.size.ToString("N0") bytes</div>
+                            </td>
+                            <td class="px-4 py-3 text-center text-sm text-gray-600">
+                                @file.last_modified.ToString("MMM dd, yyyy")
+                            </td>
+                            <td class="px-4 py-3 text-center">
+                                <button class="text-blue-600 hover:text-blue-800 mr-2" 
+                                        @onclick="() => OpenFileLocation(file)"
+                                        title="Open in Explorer">
+                                    <i class="bi bi-folder-open"></i>
+                                </button>
+                                <button class="text-red-600 hover:text-red-800"
+                                        @onclick="() => DeleteFile(file)"
+                                        title="Delete File">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        index++;
+                    }
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Summary Statistics -->
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-sm text-blue-600">Total Size (Top @DisplayLimit)</div>
+                        <div class="text-2xl font-bold text-blue-900">@FormatBytes(LargestFiles.Sum(f => f.size))</div>
+                    </div>
+                    <i class="bi bi-server text-3xl text-blue-400"></i>
+                </div>
+            </div>
+            
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-sm text-green-600">Average Size</div>
+                        <div class="text-2xl font-bold text-green-900">@FormatBytes(LargestFiles.Any() ? LargestFiles.Average(f => f.size) : 0)</div>
+                    </div>
+                    <i class="bi bi-calculator text-3xl text-green-400"></i>
+                </div>
+            </div>
+            
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-sm text-purple-600">Largest File</div>
+                        <div class="text-2xl font-bold text-purple-900">@FormatBytes(LargestFiles.FirstOrDefault()?.size ?? 0)</div>
+                    </div>
+                    <i class="bi bi-trophy text-3xl text-purple-400"></i>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-12 text-gray-500">
+            <i class="bi bi-inbox text-5xl mb-3"></i>
+            <p>No large files found</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScanRootId { get; set; }
+    
+    private bool IsLoading = true;
+    private List<tbl_files> LargestFiles = new();
+    private long MinSize = 104857600; // 100 MB default
+    private int DisplayLimit = 50;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLargestFiles();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadLargestFiles();
+    }
+    
+    private async Task LoadLargestFiles()
+    {
+        try
+        {
+            IsLoading = true;
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            
+            // Get all files from folders in this scan root
+            var allFiles = await context.tbl_folders
+                .Where(f => f.scan_root_id == ScanRootId)
+                .SelectMany(f => f.files)
+                .Where(f => f.size >= MinSize)
+                .OrderByDescending(f => f.size)
+                .Take(DisplayLimit)
+                .ToListAsync();
+            
+            LargestFiles = allFiles;
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+    
+    private async Task OnMinSizeChanged(ChangeEventArgs e)
+    {
+        if (long.TryParse(e.Value?.ToString(), out var size))
+        {
+            MinSize = size;
+            await LoadLargestFiles();
+        }
+    }
+    
+    private async Task OnLimitChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var limit))
+        {
+            DisplayLimit = limit;
+            await LoadLargestFiles();
+        }
+    }
+    
+    private async void OpenFileLocation(tbl_files file)
+    {
+        try
+        {
+            // Get the folder path
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            var folder = await context.tbl_folders.FindAsync(file.folder_id);
+            if (folder != null)
+            {
+                var filePath = Path.Combine(folder.path, file.name);
+                if (File.Exists(filePath))
+                {
+                    Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error
+        }
+    }
+    
+    private async Task DeleteFile(tbl_files file)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete '{file.name}'?\n\nSize: {FormatBytes(file.size)}\n\nThis action cannot be undone.");
+            
+        if (confirmed)
+        {
+            try
+            {
+                // Get the folder path to construct full file path
+                using var context = await DbContextFactory.CreateDbContextAsync();
+                var folder = await context.tbl_folders.FindAsync(file.folder_id);
+                if (folder != null)
+                {
+                    var filePath = Path.Combine(folder.path, file.name);
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+                    
+                    // Remove from database
+                    var dbFile = await context.tbl_files.FindAsync(file.id);
+                    if (dbFile != null)
+                    {
+                        context.tbl_files.Remove(dbFile);
+                        await context.SaveChangesAsync();
+                    }
+                    
+                    // Remove from list
+                    LargestFiles.Remove(file);
+                    StateHasChanged();
+                    
+                    await JS.InvokeVoidAsync("alert", "File deleted successfully.");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeVoidAsync("alert", $"Error deleting file: {ex.Message}");
+            }
+        }
+    }
+    
+    private string GetFileIcon(string extension)
+    {
+        extension = extension?.ToLower() ?? "";
+        
+        return extension switch
+        {
+            ".doc" or ".docx" => "bi-file-earmark-word",
+            ".xls" or ".xlsx" => "bi-file-earmark-excel",
+            ".pdf" => "bi-file-earmark-pdf",
+            ".txt" or ".log" => "bi-file-earmark-text",
+            ".jpg" or ".jpeg" or ".png" or ".gif" => "bi-file-earmark-image",
+            ".mp3" or ".wav" => "bi-file-earmark-music",
+            ".mp4" or ".avi" or ".mov" => "bi-file-earmark-play",
+            ".zip" or ".rar" or ".7z" => "bi-file-earmark-zip",
+            ".exe" or ".msi" => "bi-file-earmark-binary",
+            _ => "bi-file-earmark"
+        };
+    }
+    
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+    
+    private string FormatBytes(double bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

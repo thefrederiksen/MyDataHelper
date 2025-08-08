@@ -1,0 +1,148 @@
+@using MyDataHelper.Models
+@using System.IO
+
+<div class="@GetIndentClass()">
+    <div class="flex items-center py-1 px-2 hover:bg-gray-50 rounded @GetStatusAnimation()" 
+         @onclick="@(() => OnDirectoryClick.InvokeAsync(Directory))">
+        
+        <!-- Expand/Collapse Button -->
+        @if (Children.Any())
+        {
+            <button class="mr-2 text-gray-400 hover:text-gray-600" 
+                    @onclick="@(() => OnToggleExpanded.InvokeAsync(Directory))"
+                    @onclick:stopPropagation="true">
+                <i class="bi @(Directory.IsExpanded ? "bi-chevron-down" : "bi-chevron-right")"></i>
+            </button>
+        }
+        else
+        {
+            <span class="mr-2 w-4"></span>
+        }
+
+        <!-- Directory Icon and Status -->
+        <div class="flex items-center flex-1 min-w-0">
+            <div class="flex-shrink-0 mr-3">
+                @if (Directory.Status == ScanStatus.Scanning)
+                {
+                    <div class="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                }
+                else
+                {
+                    <i class="bi bi-folder-fill text-yellow-500"></i>
+                }
+            </div>
+            
+            <!-- Directory Name and Path -->
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center space-x-2">
+                    <span class="font-medium text-gray-900 truncate">@Directory.DirectoryName</span>
+                    <span class="@Directory.StatusColor text-lg">@Directory.StatusIcon</span>
+                </div>
+                <div class="text-xs text-gray-500 truncate">@Directory.DirectoryPath</div>
+            </div>
+            
+            <!-- Progress Information -->
+            <div class="flex-shrink-0 text-right">
+                @if (Directory.Status == ScanStatus.Completed)
+                {
+                    <div class="text-sm font-medium text-green-600">
+                        @Directory.FilesFound.ToString("N0") files
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        @FormatBytes(Directory.SizeScanned)
+                    </div>
+                }
+                else if (Directory.Status == ScanStatus.Scanning)
+                {
+                    <div class="text-sm font-medium text-blue-600">
+                        @Directory.FilesFound.ToString("N0") files
+                    </div>
+                    <div class="text-xs text-blue-500">
+                        Scanning...
+                    </div>
+                }
+                else if (Directory.Status == ScanStatus.Error)
+                {
+                    <div class="text-sm font-medium text-red-600">
+                        Error
+                    </div>
+                    <div class="text-xs text-red-500" title="@Directory.ErrorMessage">
+                        @(Directory.ErrorMessage?.Length > 20 ? Directory.ErrorMessage.Substring(0, 20) + "..." : Directory.ErrorMessage)
+                    </div>
+                }
+                else if (Directory.Status == ScanStatus.Queued)
+                {
+                    <div class="text-sm text-gray-500">
+                        Queued
+                    </div>
+                }
+                else if (Directory.Status == ScanStatus.Discovering)
+                {
+                    <div class="text-sm text-blue-500">
+                        Discovering...
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+    
+    <!-- Child Directories -->
+    @if (Directory.IsExpanded && Children.Any())
+    {
+        <div class="ml-4">
+            @foreach (var child in Children.Values.OrderBy(d => d.DirectoryName))
+            {
+                <DirectoryTreeNode Directory="@child" 
+                                   Children="@GetGrandChildren(child.DirectoryPath)"
+                                   OnToggleExpanded="@OnToggleExpanded"
+                                   OnDirectoryClick="@OnDirectoryClick" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DirectoryScanProgress Directory { get; set; } = new();
+    [Parameter] public Dictionary<string, DirectoryScanProgress> Children { get; set; } = new();
+    [Parameter] public EventCallback<DirectoryScanProgress> OnToggleExpanded { get; set; }
+    [Parameter] public EventCallback<DirectoryScanProgress> OnDirectoryClick { get; set; }
+
+    private string GetIndentClass()
+    {
+        return Directory.Depth switch
+        {
+            0 => "",
+            1 => "ml-4",
+            2 => "ml-8",
+            3 => "ml-12",
+            _ => "ml-16"
+        };
+    }
+
+    private string GetStatusAnimation()
+    {
+        return Directory.Status == ScanStatus.Scanning ? "animate-pulse" : "";
+    }
+    
+    private Dictionary<string, DirectoryScanProgress> GetGrandChildren(string parentPath)
+    {
+        // This would need to be passed down or computed differently in a real implementation
+        // For now, return empty to avoid infinite recursion
+        return new Dictionary<string, DirectoryScanProgress>();
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

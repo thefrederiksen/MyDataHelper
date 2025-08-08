@@ -61,14 +61,15 @@
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         var path = uri.PathAndQuery.ToLower();
         
+        // Handle paths with parameters
+        if (path.StartsWith("/scan-results") || path.StartsWith("/scan-dashboard"))
+            return "Results Dashboard";
+        
         return path switch
         {
-            "/" or "/index" => "Dashboard",
-            "/scan" => "Disk Scan",
-            "/tree" => "Tree View",
-            "/duplicates" => "Duplicate Files",
-            "/report" => "Reports",
-            "/settings" => "Settings",
+            "/" or "/index" or "/enhanced-scan" => "Disk Scan",
+            "/scan" => "Scan History",
+            "/scan-progress" => "Scan Progress",
             _ => "MyDataHelper"
         };
     }

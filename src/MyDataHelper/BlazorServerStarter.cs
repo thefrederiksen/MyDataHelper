@@ -247,6 +247,10 @@ namespace MyDataHelper
             builder.Services.AddScoped<IFileTypeService, FileTypeService>();
             builder.Services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
             builder.Services.AddScoped<IHashCalculationService, HashCalculationService>();
+            
+            // Enhanced parallel scanning services
+            builder.Services.AddSingleton<IDirectoryTreeBuilder, DirectoryTreeBuilder>();
+            builder.Services.AddSingleton<IParallelDiskScanService, ParallelDiskScanService>();
             builder.Services.AddScoped<IFolderDialogService, FolderDialogService>();
             builder.Services.AddScoped<IDiskReportService, DiskReportService>();
             builder.Services.AddScoped<IFileIconService, FileIconService>();
